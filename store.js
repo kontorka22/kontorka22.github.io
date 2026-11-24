@@ -1,7 +1,7 @@
 // Хранилище: локально в телефоне (работает без сети) + синхронизация через Supabase,
 // чтобы у обоих был один журнал. Конфликты — побеждает более поздняя правка.
 
-import { DEFAULT_PARAMS } from './calc.js';
+import { DEFAULT_PARAMS, normalizeParams } from './calc.js';
 
 const LS_DAYS = 'days-v1';
 const LS_PARAMS = 'params-v1';
@@ -16,7 +16,13 @@ let days = load(LS_DAYS, {});
 const persistDays = () => put(LS_DAYS, days);
 
 export const listDays = () => Object.values(days).filter(d => !d.deleted).sort((a, b) => b.date.localeCompare(a.date));
-export const getDay = date => (days[date] && !days[date].deleted ? days[date] : null);
+export const getDay = date => {
+  const d = days[date];
+  if (!d || d.deleted) return null;
+  // старый формат: одна сумма за день → одно поступление
+  if (!d.ops) return { ...d, ops: d.flow ? [{ id: 'legacy', amount: d.flow, at: d.updatedAt }] : [] };
+  return d;
+};
 
 export function saveDay(day) {
   days[day.date] = { ...day, deleted: false, updatedAt: new Date().toISOString(), updatedBy: syncCfg().email || '', dirty: true };
@@ -31,7 +37,7 @@ export function deleteDay(date) {
 }
 
 // ---------- параметры ----------
-let params = { ...structuredClone(DEFAULT_PARAMS), ...load(LS_PARAMS, {}).data };
+let params = normalizeParams(load(LS_PARAMS, {}).data);
 let paramsMeta = load(LS_PARAMS, { updatedAt: '1970-01-01T00:00:00Z' });
 export const getParams = () => structuredClone(params);
 export function setParams(p) {
@@ -111,7 +117,7 @@ export async function syncNow() {
     }
     const remoteSettings = await api('settings?id=eq.1&select=data,updated_at');
     if (remoteSettings[0] && !paramsMeta.dirty && t(remoteSettings[0].updated_at) > t(paramsMeta.updatedAt)) {
-      params = { ...structuredClone(DEFAULT_PARAMS), ...remoteSettings[0].data };
+      params = normalizeParams(remoteSettings[0].data);
       paramsMeta = { data: params, updatedAt: remoteSettings[0].updated_at, dirty: false };
       put(LS_PARAMS, paramsMeta);
     }
