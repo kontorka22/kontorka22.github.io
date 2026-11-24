@@ -176,3 +176,6 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 .dlghead { display: flex; justify-content: space-between; align-items: center; }
 .dlghead h3 { margin: 0; }
 .tabs button { font-size: 11px; }
+
+.card h3 + .prm, .card h3 + .toggle { margin-top: 10px; }
+.tabs button { font-size: 12px; }

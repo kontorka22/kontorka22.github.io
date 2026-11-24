@@ -15,7 +15,12 @@ export const DEFAULT_PARAMS = {
   profitTaxPct: 0.25,     // налог на прибыль
   // Гонконг
   cost: { markupRub: 1, hkPct: 0.02 },     // себестоимость: курс ЦБ + 1 ₽, комиссия ГК 2%
-  sale: { markupRub: 1.3, hkPct: 0.025 },  // продажа: курс ЦБ + 1,3 ₽, комиссия ГК 2,5%
+  // продажа — своя структура ООО → Гонконг → Дубай с отдельными значениями
+  sale: {
+    agentPct: 0.015, vatPct: 0.22, vatOnTop: false, // ООО
+    markupRub: 1, hkPct: 0.025,                     // Гонконг: курс ЦБ + 1 ₽, комиссия 2,5%
+    dubai: [],                                      // Дубай: статьи
+  },
   // Расходы
   dubai: [],
   ooo: [
@@ -34,6 +39,9 @@ export function normalizeParams(p) {
     if (out[side].markupRub == null) out[side] = { ...DEFAULT_PARAMS[side], hkPct: out[side].hkPct ?? DEFAULT_PARAMS[side].hkPct };
     delete out[side].markupPct;
   }
+  // продажа раньше была только «Гонконг» — дополняем ООО и Дубаем, надбавка по умолчанию +1 ₽
+  if (out.sale.agentPct == null) out.sale = { ...structuredClone(DEFAULT_PARAMS.sale), hkPct: out.sale.hkPct };
+  if (!Array.isArray(out.sale.dubai)) out.sale.dubai = [];
   for (const k of ['expenses', 'payrollMonthRub', 'dubaiNominalUsdMonth', 'dubaiAccountingUsdMonth']) delete out[k];
   return out;
 }
@@ -60,6 +68,9 @@ function hk(transitRub, cb, { markupRub, hkPct }) {
   return { hkRub, convRate, usdt: convRate > 0 ? (transitRub - hkRub) / convRate : 0 };
 }
 
+/** Сколько удерживает ООО из потока клиента по процентам продажи. */
+const saleRetained = (flow, s) => flow * s.agentPct * (s.vatOnTop ? 1 + s.vatPct : 1);
+
 /** ООО: что удерживается из потока и что остаётся у ООО. fixedRub — расходы ООО за период. */
 function oooPart(flow, p, fixedRub) {
   const agentRub = flow * p.agentPct;
@@ -82,6 +93,8 @@ export function calcDay(ops, cb, pIn, share) {
   const act = activeOoo(p);
   const dubaiUsd = monthlySum(p.dubai) * share;
   const dubaiPerUnit = dubaiUsd / Math.max(1, act.length);
+  const saleDubaiUsd = monthlySum(p.sale.dubai) * share;
+  const saleDubaiPerUnit = saleDubaiUsd / Math.max(1, act.length);
 
   // группы: каждое ООО (включённое или с поступлениями) + «без ООО»
   const flowBy = {};
@@ -96,20 +109,23 @@ export function calcDay(ops, cb, pIn, share) {
     const rf = isOoo ? oooPart(flow, p, fixed) : null;
     const transitRub = flow - (rf ? rf.retainedRub : 0);
     const cost = hk(transitRub, cb, p.cost);
-    const sale = hk(transitRub, cb, p.sale);
-    const dubai = (isOoo && o?.active) || (!isOoo && !act.length) ? dubaiPerUnit : 0;
+    const sale = hk(flow - (isOoo ? saleRetained(flow, p.sale) : 0), cb, p.sale);
+    const getsDubai = (isOoo && o?.active) || (!isOoo && !act.length);
+    const dubai = getsDubai ? dubaiPerUnit : 0;
+    const saleDubai = getsDubai ? saleDubaiPerUnit : 0;
     const costUsdt = cost.usdt - dubai;
-    return { id, name: isOoo ? o?.name || `ООО ${id}` : 'Без ООО', flow, rf, transitRub, cost, sale, dubaiUsd: dubai,
-      costUsdt, saleUsdt: sale.usdt, diffUsdt: costUsdt - sale.usdt,
-      costRate: costUsdt > 0 ? flow / costUsdt : 0, saleRate: sale.usdt > 0 ? flow / sale.usdt : 0 };
+    const saleUsdt = sale.usdt - saleDubai;
+    return { id, name: isOoo ? o?.name || `ООО ${id}` : 'Без ООО', flow, rf, transitRub, cost, sale, dubaiUsd: dubai, saleDubaiUsd: saleDubai,
+      costUsdt, saleUsdt, diffUsdt: costUsdt - saleUsdt,
+      costRate: costUsdt > 0 ? flow / costUsdt : 0, saleRate: saleUsdt > 0 ? flow / saleUsdt : 0 };
   });
 
   const sum = f => units.reduce((s, u) => s + f(u), 0);
   const flow = sum(u => u.flow);
   const costUsdt = sum(u => u.costUsdt), saleUsdt = sum(u => u.saleUsdt);
   return {
-    flow, cb, share, units, dubaiUsd,
-    convUsdt: sum(u => u.cost.usdt),
+    flow, cb, share, units, dubaiUsd, saleDubaiUsd,
+    convUsdt: sum(u => u.cost.usdt), saleConvUsdt: sum(u => u.sale.usdt),
     costUsdt, saleUsdt, diffUsdt: costUsdt - saleUsdt,
     costRate: costUsdt > 0 ? flow / costUsdt : 0,
     saleRate: saleUsdt > 0 ? flow / saleUsdt : 0,
@@ -117,11 +133,13 @@ export function calcDay(ops, cb, pIn, share) {
   };
 }
 
-/** Сколько USDT получит клиент за рубли по курсу продажи (через ООО или напрямую) и обратно. */
+/**
+ * Сколько USDT получит клиент за рубли по продаже (через ООО или напрямую) и обратно.
+ * Без постоянных расходов Дубая продажи — они распределяются на весь поток дня.
+ */
 export function clientQuote(rub, cb, pIn, viaOoo = true) {
   const p = normalizeParams(pIn);
-  const transit = viaOoo ? rub * (1 - p.agentPct * (p.vatOnTop ? 1 + p.vatPct : 1)) : rub;
-  return hk(transit, cb, p.sale).usdt;
+  return hk(rub - (viaOoo ? saleRetained(rub, p.sale) : 0), cb, p.sale).usdt;
 }
 export function rubForUsdt(usdt, cb, pIn, viaOoo = true) {
   const per = clientQuote(1, cb, pIn, viaOoo);
@@ -153,13 +171,18 @@ export function periodReport(days, pIn, period) {
   const rows = days.map(d => ({ d, r: calcDay(d.ops, d.cb, d.params, 0) }));
   const flow = rows.reduce((s, x) => s + x.r.flow, 0);
   const convUsdt = rows.reduce((s, x) => s + x.r.convUsdt, 0);
-  const saleUsdt = rows.reduce((s, x) => s + x.r.saleUsdt, 0);
+  const saleConvUsdt = rows.reduce((s, x) => s + x.r.saleConvUsdt, 0);
 
   // Дубай
   const dubaiFixedUsd = months.length * monthlySum(p.dubai) * share;
   const dubaiLumps = isDay ? [] : months.flatMap(m => lumpsIn(p.dubai, m));
   const dubaiLumpUsd = dubaiLumps.reduce((s, e) => s + +e.amount, 0);
   const costUsdt = convUsdt - dubaiFixedUsd - dubaiLumpUsd;
+  // Дубай в продаже
+  const saleDubaiFixedUsd = months.length * monthlySum(p.sale.dubai) * share;
+  const saleDubaiLumps = isDay ? [] : months.flatMap(m => lumpsIn(p.sale.dubai, m));
+  const saleDubaiLumpUsd = saleDubaiLumps.reduce((s, e) => s + +e.amount, 0);
+  const saleUsdt = saleConvUsdt - saleDubaiFixedUsd - saleDubaiLumpUsd;
 
   // ООО — налог считается по каждому ООО помесячно
   const ooo = [...new Set([...act.map(o => o.id), ...rows.flatMap(x => x.r.units.filter(u => u.id && u.flow).map(u => u.id))])].sort().map(id => {
@@ -185,14 +208,16 @@ export function periodReport(days, pIn, period) {
   const series = period.kind === 'year'
     ? months.map(m => {
       const rs = rows.filter(x => x.d.date.startsWith(m));
-      const v = rs.reduce((s, x) => s + x.r.convUsdt - x.r.saleUsdt, 0) - monthlySum(p.dubai) - lumpSum(p.dubai, m);
+      const v = rs.reduce((s, x) => s + x.r.convUsdt - x.r.saleConvUsdt, 0)
+        - monthlySum(p.dubai) - lumpSum(p.dubai, m) + monthlySum(p.sale.dubai) + lumpSum(p.sale.dubai, m);
       return { key: m, value: v };
     })
-    : rows.map(x => ({ key: x.d.date, value: x.r.convUsdt - x.r.saleUsdt }));
+    : rows.map(x => ({ key: x.d.date, value: x.r.convUsdt - x.r.saleConvUsdt }));
 
   return {
     flow, count: rows.filter(x => x.r.flow > 0).length,
-    convUsdt, saleUsdt, dubaiFixedUsd, dubaiLumpUsd, dubaiLumps, costUsdt,
+    convUsdt, saleConvUsdt, saleUsdt, dubaiFixedUsd, dubaiLumpUsd, dubaiLumps, costUsdt,
+    saleDubaiFixedUsd, saleDubaiLumpUsd, saleDubaiLumps,
     diffUsdt: costUsdt - saleUsdt,
     costRate: costUsdt > 0 ? flow / costUsdt : 0,
     saleRate: saleUsdt > 0 ? flow / saleUsdt : 0,

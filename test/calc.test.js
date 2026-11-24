@@ -88,7 +88,18 @@ test('котировка клиенту и обратно', () => {
 test('надбавка к ЦБ в рублях; старый формат в % переводится', () => {
   const r = calcDay([{ amount: 1e6, ooo: 1 }], 80, DEFAULT_PARAMS, 0);
   near(r.units[0].cost.convRate, 81);
-  near(r.units[0].sale.convRate, 81.3);
+  near(r.units[0].sale.convRate, 81);
   const old = { ...structuredClone(DEFAULT_PARAMS), cost: { markupPct: 0.01, hkPct: 0.02 } };
   near(calcDay([{ amount: 1e6, ooo: 1 }], 80, old, 0).units[0].cost.convRate, 81);
+});
+
+test('продажа: своё агентское ООО и свой Дубай', () => {
+  const p = structuredClone(DEFAULT_PARAMS);
+  p.sale.agentPct = 0.02; p.sale.dubai = [m('Комиссия', 1000)];
+  const r = calcDay([{ amount: 1e6, ooo: 1 }], 80, p, 1);
+  near(r.units[0].sale.usdt, 1e6 * (1 - 0.02) * (1 - 0.025) / 81);
+  near(r.saleUsdt, r.saleConvUsdt - 1000);
+  near(clientQuote(1e6, 80, p), r.saleConvUsdt);
+  const rep = periodReport([{ date: '2026-12-01', ops: [{ amount: 1e6, ooo: 1 }], cb: 80, params: p }], p, { kind: 'month', months: ['2026-12'] });
+  near(rep.saleUsdt, rep.saleConvUsdt - 1000);
 });

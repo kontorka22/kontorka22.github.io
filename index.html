@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 <header class="top">
@@ -76,19 +76,16 @@
     <div id="repBody"></div>
   </section>
 
-  <!-- РАСХОДЫ -->
-  <section id="tab-exp" class="tab"><div id="expBody"></div></section>
-
   <!-- СЕБЕСТОИМОСТЬ -->
   <section id="tab-cost" class="tab">
     <div class="card preview"><span class="muted small">Себестоимость сегодня</span><b class="cost" id="costPreview">—</b><span class="muted small" id="costPreviewNote"></span></div>
-    <form id="costForm" class="card"></form>
+    <div id="costBody"></div>
   </section>
 
   <!-- ПРОДАЖА -->
   <section id="tab-sale" class="tab">
     <div class="card preview"><span class="muted small">Курс продажи сегодня</span><b class="sale" id="salePreview">—</b><span class="muted small" id="salePreviewNote"></span></div>
-    <form id="saleForm" class="card"></form>
+    <div id="saleBody"></div>
   </section>
 </main>
 
@@ -115,11 +112,10 @@
 <nav class="tabs">
   <button type="button" data-tab="day" class="active"><i>◉</i>День</button>
   <button type="button" data-tab="rep"><i>▤</i>Отчёт</button>
-  <button type="button" data-tab="exp"><i>≡</i>Расходы</button>
   <button type="button" data-tab="cost"><i>↓</i>Себестоимость</button>
   <button type="button" data-tab="sale"><i>↑</i>Продажа</button>
 </nav>
 
-<script type="module" src="app.js?v=7"></script>
+<script type="module" src="app.js?v=8"></script>
 </body>
 </html>

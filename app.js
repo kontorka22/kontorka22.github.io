@@ -25,8 +25,8 @@ function moneyInput(el, onChange, decimals = false) {
 }
 
 // ---------------- вкладки ----------------
-const TITLES = { day: 'День', rep: 'Отчёт', exp: 'Расходы', cost: 'Себестоимость', sale: 'Продажа' };
-const RENDER = { day: () => renderDay(), rep: () => renderReport(), exp: () => renderExpenses(), cost: () => renderCost(), sale: () => renderSale() };
+const TITLES = { day: 'День', rep: 'Отчёт', cost: 'Себестоимость', sale: 'Продажа' };
+const RENDER = { day: () => renderDay(), rep: () => renderReport(), cost: () => renderCost(), sale: () => renderSale() };
 let currentTab = 'day';
 function openTab(name) {
   currentTab = name;
@@ -243,6 +243,7 @@ function renderReport() {
       <div class="stitle">🇦🇪 Дубай</div>
       ${line('Сконвертировано в Гонконге', usdt(r.convUsdt))}
       ${line('Выдано клиентам', '− ' + usdt(r.saleUsdt))}
+      ${r.saleDubaiFixedUsd + r.saleDubaiLumpUsd ? `<div class="muted small">в т.ч. удержано Дубаем с клиентов: ${fmt(r.saleDubaiFixedUsd + r.saleDubaiLumpUsd)} USD</div>` : ''}
       ${dubaiMonthly.map(e => line(`− ${esc(e.name)}${rep.kind === 'day' ? ' (доля за день)' : ''}`, usd(e.amount * mult))).join('')}
       ${r.dubaiLumps.map(e => line(`− ${esc(e.name)} ${tag(e)}`, usd(+e.amount))).join('')}
       ${line('Разница', `${sign(r.diffUsdt)} USDT`, 'tot ' + (r.diffUsdt < 0 ? 'bad' : 'good'))}
@@ -267,8 +268,15 @@ function renderReport() {
   }));
 }
 
-// ---------------- расходы ----------------
+// ---------------- себестоимость и продажа ----------------
+// Обе вкладки устроены одинаково: ООО → Дубай → Гонконг, у каждой свои значения.
+// Ввод сохраняется сразу на каждое нажатие, вкладка при этом не перерисовывается —
+// иначе поле, в которое только что нажали, пересоздаётся и набранное теряется.
+
 const PERIODS = { month: 'каждый месяц', year: 'раз в год', once: 'разово' };
+const getPath = (o, k) => k.split('.').reduce((a, x) => a[x], o);
+const setPath = (o, k, v) => { const ks = k.split('.'); const last = ks.pop(); ks.reduce((a, x) => a[x], o)[last] = v; };
+
 function itemsHtml(items, cur, owner) {
   return items.map(e => `<div class="exp" data-owner="${owner}" data-id="${e.id}">
       <input class="ename" value="${esc(e.name)}" data-f="name" placeholder="Название статьи">
@@ -280,135 +288,134 @@ function itemsHtml(items, cur, owner) {
       ${e.period !== 'month' ? `<label class="efrom muted small">${e.period === 'year' ? 'месяц оплаты' : 'месяц'} <input type="month" value="${e.from || todayMsk().slice(0, 7)}" data-f="from"></label>` : ''}
     </div>`).join('') + `<button type="button" class="addbtn" data-add="${owner}">+ Добавить статью</button>`;
 }
-function renderExpenses() {
-  const p = store.getParams();
-  const act = activeOoo(p);
-  const dm = monthlySum(p.dubai);
-  $('#expBody').innerHTML = `
-    <div class="card">
-      <div class="ghead"><h3>🇦🇪 Дубай</h3><span class="muted small">в месяц <b id="dubaiTotal">${fmt(dm)} USD</b></span></div>
-      <div class="muted small">Работает всегда.<span id="dubaiSplit">${act.length > 1 ? ` Делится на ${act.length} ООО — по ${fmt(dm / act.length)} USD на каждое.` : ''}</span></div>
-      ${itemsHtml(p.dubai, 'USD', 'dubai')}
-    </div>
+function fieldHtml(path, label, type, p) {
+  const v = getPath(p, path);
+  if (type === 'bool') return `<label class="toggle">${label}<input type="checkbox" data-p="${path}" data-t="bool" ${v ? 'checked' : ''}></label>`;
+  const shown = fmt(type === 'rub' ? v : v * 100, 3).replace(/,?0+$/, '');
+  return `<label class="prm"><span>${label}</span><span class="pin"><input data-p="${path}" data-t="${type}" inputmode="decimal" value="${shown}"><i>${type === 'rub' ? '₽' : '%'}</i></span></label>`;
+}
+const ownerList = (p, owner) => owner === 'dubai' ? p.dubai : owner === 'saleDubai' ? p.sale.dubai : p.ooo.find(o => 'ooo' + o.id === owner).expenses;
+const total = items => `${fmt(monthlySum(items))}`;
+
+function renderCost() {
+  const p = store.getParams(), act = activeOoo(p);
+  $('#costBody').innerHTML = `
     <div class="card">
       <div class="ghead"><h3>🇷🇺 ООО</h3><span class="muted small">в расчётах: <b>${act.length} из 3</b></span></div>
+      ${fieldHtml('agentPct', 'Агентское вознаграждение', '%', p)}
+      ${fieldHtml('vatPct', 'НДС', '%', p)}
+      ${fieldHtml('vatOnTop', 'НДС сверху вознаграждения', 'bool', p)}
+      ${fieldHtml('bankPct', 'Комиссия банка РФ', '%', p)}
+      ${fieldHtml('profitTaxPct', 'Налог на прибыль', '%', p)}
       ${p.ooo.map(o => `<div class="ooo ${o.active ? '' : 'off'}">
         <div class="ohead">
           <input class="oname" value="${esc(o.name)}" data-oname="${o.id}" aria-label="Название ООО">
           <label class="switch" title="Учитывать в расчётах"><input type="checkbox" data-oon="${o.id}" ${o.active ? 'checked' : ''}><span></span></label>
         </div>
-        ${o.active ? `<div class="muted small">в расчётах · в месяц <b data-ototal="${o.id}">${fmt(monthlySum(o.expenses))} ₽</b></div>${itemsHtml(o.expenses, '₽', 'ooo' + o.id)}` : '<div class="muted small">не учитывается в расчётах</div>'}
+        ${o.active ? `<div class="muted small">расходы в месяц <b data-total="ooo${o.id}">${total(o.expenses)}</b> ₽</div>${itemsHtml(o.expenses, '₽', 'ooo' + o.id)}` : '<div class="muted small">не учитывается в расчётах</div>'}
       </div>`).join('')}
-    </div>`;
+    </div>
+    <div class="card">
+      <div class="ghead"><h3>🇦🇪 Дубай</h3><span class="muted small">в месяц <b data-total="dubai">${total(p.dubai)}</b> USD</span></div>
+      <div class="muted small">Работает всегда.${act.length > 1 ? ` Делится на ${act.length} ООО.` : ''}</div>
+      ${itemsHtml(p.dubai, 'USD', 'dubai')}
+    </div>
+    <div class="card">
+      <h3>🇭🇰 Гонконг</h3>
+      ${fieldHtml('cost.markupRub', 'Надбавка к курсу ЦБ', 'rub', p)}
+      ${fieldHtml('cost.hkPct', 'Комиссия банка ГК', '%', p)}
+    </div>
+    <p class="muted small pad">Уже внесённые дни не пересчитываются — у каждого свои проценты и курс на момент ввода.</p>`;
+  updatePreviews();
 }
-const ownerList = (p, owner) => (owner === 'dubai' ? p.dubai : p.ooo.find(o => 'ooo' + o.id === owner).expenses);
-// Сохраняем каждое изменение сразу. Перерисовываем список только когда меняется его
-// состав (период, добавление, удаление, вкл/выкл ООО) — иначе поле, в которое
-// пользователь только что нажал, пересоздаётся и набранное теряется.
-function saveExpField(el) {
-  const p = store.getParams();
-  if (el.dataset.oname) { p.ooo.find(o => o.id === +el.dataset.oname).name = el.value.trim() || `ООО ${el.dataset.oname}`; store.setParams(p); return; }
-  const row = el.closest('.exp'); if (!row) return;
-  const item = ownerList(p, row.dataset.owner).find(x => x.id === row.dataset.id);
-  const f = el.dataset.f;
-  item[f] = f === 'amount' ? parseNum(el.value) : el.value;
-  if (f === 'period' && item.period !== 'month' && !item.from) item.from = todayMsk().slice(0, 7);
-  store.setParams(p);
-  updateExpTotals(p);
-}
-function updateExpTotals(p) {
-  const act = activeOoo(p), dm = monthlySum(p.dubai);
-  $('#dubaiTotal').textContent = `${fmt(dm)} USD`;
-  $('#dubaiSplit').textContent = act.length > 1 ? ` Делится на ${act.length} ООО — по ${fmt(dm / act.length)} USD на каждое.` : '';
-  for (const o of p.ooo) { const el = document.querySelector(`[data-ototal="${o.id}"]`); if (el) el.textContent = `${fmt(monthlySum(o.expenses))} ₽`; }
-}
-$('#expBody').addEventListener('input', e => {
-  if (e.target.dataset.f === 'amount') {
-    const d = e.target.value.replace(/\D/g, ''); e.target.value = d ? fmt(parseInt(d, 10)) : '';
-  }
-  if (e.target.dataset.f === 'amount' || e.target.dataset.f === 'name' || e.target.dataset.oname) saveExpField(e.target);
-});
-$('#expBody').addEventListener('change', e => {
-  const p = store.getParams();
-  if (e.target.dataset.oon) { p.ooo.find(o => o.id === +e.target.dataset.oon).active = e.target.checked; store.setParams(p); renderExpenses(); return; }
-  if (e.target.dataset.f === 'period' || e.target.dataset.f === 'from') { saveExpField(e.target); if (e.target.dataset.f === 'period') renderExpenses(); }
-});
-$('#expBody').addEventListener('click', e => {
-  const p = store.getParams();
-  if (e.target.dataset.add) {
-    const id = uid();
-    ownerList(p, e.target.dataset.add).push({ id, name: '', amount: 0, period: 'month' });
-    store.setParams(p); renderExpenses();
-    document.querySelector(`.exp[data-id="${id}"] .ename`)?.focus();
-  }
-  if (e.target.hasAttribute('data-del')) {
-    const row = e.target.closest('.exp');
-    const list = ownerList(p, row.dataset.owner);
-    const item = list.find(x => x.id === row.dataset.id);
-    if (!confirm(`Удалить статью «${item.name || 'без названия'}»?`)) return;
-    list.splice(list.indexOf(item), 1);
-    store.setParams(p); renderExpenses();
-  }
-});
 
-// ---------------- себестоимость и продажа ----------------
-const getPath = (o, k) => k.split('.').reduce((a, x) => a[x], o);
-const setPath = (o, k, v) => { const ks = k.split('.'); const last = ks.pop(); ks.reduce((a, x) => a[x], o)[last] = v; };
-const COST_FIELDS = [
-  ['🇷🇺 ООО'],
-  ['agentPct', 'Агентское вознаграждение', '%'],
-  ['vatPct', 'НДС', '%'],
-  ['vatOnTop', 'НДС сверху вознаграждения', 'bool'],
-  ['bankPct', 'Комиссия банка РФ', '%'],
-  ['profitTaxPct', 'Налог на прибыль', '%'],
-  ['🇭🇰 Гонконг'],
-  ['cost.markupRub', 'Надбавка к курсу ЦБ', 'rub'],
-  ['cost.hkPct', 'Комиссия банка ГК', '%'],
-];
-const SALE_FIELDS = [
-  ['🇭🇰 Гонконг — для клиента'],
-  ['sale.markupRub', 'Надбавка к курсу ЦБ', 'rub'],
-  ['sale.hkPct', 'Комиссия ГК', '%'],
-];
-function formHtml(fields) {
-  const p = store.getParams();
-  let html = '', open = false;
-  for (const [k, label, type] of fields) {
-    if (!label) { if (open) html += '</fieldset>'; html += `<fieldset><legend>${k}</legend>`; open = true; continue; }
-    const v = getPath(p, k);
-    html += type === 'bool'
-      ? `<label class="toggle">${label}<input type="checkbox" name="${k}" ${v ? 'checked' : ''}></label>`
-      : `<label class="prm"><span>${label}</span><span class="pin"><input name="${k}" inputmode="decimal" value="${fmt(type === 'rub' ? v : v * 100, 3).replace(/,?0+$/, '')}"><i>${type === 'rub' ? '₽' : '%'}</i></span></label>`;
-  }
-  return html + '</fieldset><p class="muted small">Уже внесённые дни не пересчитываются — у каждого свои проценты и курс на момент ввода.</p>';
+function renderSale() {
+  const p = store.getParams(), act = activeOoo(p);
+  $('#saleBody').innerHTML = `
+    <div class="card">
+      <h3>🇷🇺 ООО</h3>
+      ${fieldHtml('sale.agentPct', 'Агентское вознаграждение', '%', p)}
+      ${fieldHtml('sale.vatPct', 'НДС', '%', p)}
+      ${fieldHtml('sale.vatOnTop', 'НДС сверху вознаграждения', 'bool', p)}
+      <div class="muted small">Какие ООО работают — включается во вкладке «Себестоимость».</div>
+    </div>
+    <div class="card">
+      <div class="ghead"><h3>🇦🇪 Дубай</h3><span class="muted small">в месяц <b data-total="saleDubai">${total(p.sale.dubai)}</b> USD</span></div>
+      <div class="muted small">Удерживается из выдачи клиентам за день.${act.length > 1 ? ` Делится на ${act.length} ООО.` : ''}</div>
+      ${itemsHtml(p.sale.dubai, 'USD', 'saleDubai')}
+    </div>
+    <div class="card">
+      <h3>🇭🇰 Гонконг</h3>
+      ${fieldHtml('sale.markupRub', 'Надбавка к курсу ЦБ', 'rub', p)}
+      ${fieldHtml('sale.hkPct', 'Комиссия ГК', '%', p)}
+    </div>
+    <p class="muted small pad">Уже внесённые дни не пересчитываются — у каждого свои проценты и курс на момент ввода.</p>`;
+  updatePreviews();
 }
-function bindForm(form, fields, after) {
-  form.addEventListener('change', e => {
-    const f = fields.find(x => x[0] === e.target.name); if (!f) return;
+
+function updatePreviews() {
+  const p = store.getParams(), act = activeOoo(p), via = act.length > 0;
+  if (!todayCb) return;
+  const r = calcDay([{ amount: 1e7, ooo: act[0]?.id ?? 0 }], todayCb, p, 0);
+  $('#costPreview').textContent = `${fmt(r.costRate, 2)} ₽ за 1 USDT`;
+  $('#costPreviewNote').textContent = `ЦБ ${fmt(todayCb, 4)}${via ? '' : ' · ООО выключены'} · без постоянных расходов — они зависят от потока за день`;
+  $('#salePreview').textContent = `${fmt(1 / clientQuote(1, todayCb, p, via), 2)} ₽ за 1 USDT`;
+  $('#salePreviewNote').textContent = `ЦБ ${fmt(todayCb, 4)}${via ? '' : ' · ООО выключены'} · без постоянных расходов Дубая`;
+}
+
+function saveField(el) {
+  const p = store.getParams();
+  if (el.dataset.p) {
+    const t = el.dataset.t;
+    setPath(p, el.dataset.p, t === 'bool' ? el.checked : t === 'rub' ? parseNum(el.value) : parseNum(el.value) / 100);
+  } else if (el.dataset.oname) {
+    p.ooo.find(o => o.id === +el.dataset.oname).name = el.value.trim() || `ООО ${el.dataset.oname}`;
+  } else {
+    const row = el.closest('.exp'); if (!row) return;
+    const item = ownerList(p, row.dataset.owner).find(x => x.id === row.dataset.id);
+    const f = el.dataset.f;
+    item[f] = f === 'amount' ? parseNum(el.value) : el.value;
+    if (f === 'period' && item.period !== 'month' && !item.from) item.from = todayMsk().slice(0, 7);
+    const tot = document.querySelector(`[data-total="${row.dataset.owner}"]`);
+    if (tot) tot.textContent = total(ownerList(p, row.dataset.owner));
+  }
+  store.setParams(p);
+  updatePreviews();
+}
+
+for (const body of [$('#costBody'), $('#saleBody')]) {
+  const rerender = () => (body.id === 'costBody' ? renderCost() : renderSale());
+  body.addEventListener('input', e => {
+    const el = e.target;
+    if (el.dataset.f === 'amount') { const d = el.value.replace(/\D/g, ''); el.value = d ? fmt(parseInt(d, 10)) : ''; }
+    if (el.dataset.f === 'amount' || el.dataset.f === 'name' || el.dataset.oname || (el.dataset.p && el.dataset.t !== 'bool')) saveField(el);
+  });
+  body.addEventListener('change', e => {
+    const el = e.target;
+    if (el.dataset.oon) {
+      const p = store.getParams(); p.ooo.find(o => o.id === +el.dataset.oon).active = el.checked; store.setParams(p); rerender(); return;
+    }
+    if (el.dataset.t === 'bool' || el.dataset.f === 'from') saveField(el);
+    if (el.dataset.f === 'period') { saveField(el); rerender(); }
+  });
+  body.addEventListener('click', e => {
     const p = store.getParams();
-    setPath(p, f[0], f[2] === 'bool' ? e.target.checked : f[2] === 'rub' ? parseNum(e.target.value) : parseNum(e.target.value) / 100);
-    store.setParams(p); after();
+    if (e.target.dataset.add) {
+      const id = uid();
+      ownerList(p, e.target.dataset.add).push({ id, name: '', amount: 0, period: 'month' });
+      store.setParams(p); rerender();
+      document.querySelector(`.exp[data-id="${id}"] .ename`)?.focus();
+    }
+    if (e.target.hasAttribute('data-del')) {
+      const row = e.target.closest('.exp');
+      const list = ownerList(p, row.dataset.owner);
+      const item = list.find(x => x.id === row.dataset.id);
+      if (!confirm(`Удалить статью «${item.name || 'без названия'}»?`)) return;
+      list.splice(list.indexOf(item), 1);
+      store.setParams(p); rerender();
+    }
   });
 }
-function renderCost() {
-  const p = store.getParams(), via = activeOoo(p).length > 0;
-  if (todayCb) {
-    const r = calcDay([{ amount: 1e7, ooo: activeOoo(p)[0]?.id ?? 0 }], todayCb, p, 0);
-    $('#costPreview').textContent = `${fmt(r.costRate, 2)} ₽ за 1 USDT`;
-    $('#costPreviewNote').textContent = `ЦБ ${fmt(todayCb, 4)}${via ? '' : ' · ООО выключены'} · без расходов Дубая и ООО — они зависят от потока за день`;
-  }
-  $('#costForm').innerHTML = formHtml(COST_FIELDS);
-}
-function renderSale() {
-  const p = store.getParams(), via = activeOoo(p).length > 0;
-  if (todayCb) {
-    $('#salePreview').textContent = `${fmt(1 / clientQuote(1, todayCb, p, via), 2)} ₽ за 1 USDT`;
-    $('#salePreviewNote').textContent = `ЦБ ${fmt(todayCb, 4)}${via ? ' · с агентским ООО' : ' · ООО выключены'}`;
-  }
-  $('#saleForm').innerHTML = formHtml(SALE_FIELDS);
-}
-bindForm($('#costForm'), COST_FIELDS, renderCost);
-bindForm($('#saleForm'), SALE_FIELDS, renderSale);
 
 // ---------------- общий журнал (вход) ----------------
 const dlg = $('#syncDlg');
