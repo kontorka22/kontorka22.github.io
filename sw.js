@@ -1,7 +1,7 @@
 // Кеш оболочки приложения: открывается без сети. Курс ЦБ и синхронизация — всегда из сети.
-const VERSION = 'v23';
+const VERSION = 'v24';
 const SHELL = ['./', 'index.html', 'style.css?v=15', 'app.js?v=22', 'calc.js?v=22', 'cbr.js?v=22', 'store.js?v=22', 'config.js?v=22',
-  'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
+  'manifest.webmanifest', 'icons/icon-192.png?v=2', 'icons/icon-512.png?v=2', 'icons/icon-180.png?v=2'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
