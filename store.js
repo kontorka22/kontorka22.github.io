@@ -2,8 +2,8 @@
 // чтобы у обоих был один журнал, одни настройки и общая история изменений.
 // Вход по почте и паролю (Supabase Auth). Имя пользователя подписывает все изменения.
 
-import { DEFAULT_PARAMS, normalizeParams } from './calc.js?v=18';
-import { SUPABASE } from './config.js?v=18';
+import { DEFAULT_PARAMS, normalizeParams } from './calc.js?v=19';
+import { SUPABASE } from './config.js?v=19';
 
 const LS_DAYS = 'days-v1';
 const LS_PARAMS = 'params-v1';
@@ -185,7 +185,7 @@ export async function syncNow() {
       paramsMeta = { data: params, updatedAt: remoteSettings[0].updated_at, dirty: false };
       put(LS_PARAMS, paramsMeta);
     }
-    const remoteLog = await api('log?select=id,at,by,text&order=at.desc&limit=500');
+    const remoteLog = (await api('log?select=id,at,who,text&order=at.desc&limit=500')).map(({ who, ...e }) => ({ ...e, by: who }));
     for (const e of remoteLog) {
       const i = log.findIndex(x => x.id === e.id);
       if (i < 0) log.push({ ...e, dirty: false });
@@ -204,7 +204,7 @@ export async function syncNow() {
     }
     const dirtyLog = log.filter(e => e.dirty);
     if (dirtyLog.length) {
-      await upsert('log', dirtyLog.map(e => ({ id: e.id, at: e.at, by: e.by, text: e.text })));
+      await upsert('log', dirtyLog.map(e => ({ id: e.id, at: e.at, who: e.by, text: e.text })));
       dirtyLog.forEach(e => { e.dirty = false; });
     }
     persistDays(); persistLog();

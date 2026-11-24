@@ -20,7 +20,7 @@ create table if not exists public.settings (
 create table if not exists public.log (
   id    text primary key,
   at    timestamptz not null default now(),
-  by    text,
+  who   text,
   text  text not null
 );
 
@@ -36,3 +36,6 @@ drop policy if exists "open" on public.log;
 create policy "open" on public.days     for all to authenticated using (true) with check (true);
 create policy "open" on public.settings for all to authenticated using (true) with check (true);
 create policy "open" on public.log      for all to authenticated using (true) with check (true);
+
+-- права для вошедших (в новых проектах Supabase их нужно выдать явно)
+grant select, insert, update, delete on public.days, public.settings, public.log to authenticated;

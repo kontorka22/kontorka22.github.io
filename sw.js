@@ -1,6 +1,6 @@
 // Кеш оболочки приложения: открывается без сети. Курс ЦБ и синхронизация — всегда из сети.
-const VERSION = 'v19';
-const SHELL = ['./', 'index.html', 'style.css?v=14', 'app.js?v=18', 'calc.js?v=18', 'cbr.js?v=18', 'store.js?v=18', 'config.js?v=18',
+const VERSION = 'v20';
+const SHELL = ['./', 'index.html', 'style.css?v=14', 'app.js?v=19', 'calc.js?v=19', 'cbr.js?v=19', 'store.js?v=19', 'config.js?v=19',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 
 self.addEventListener('install', e => {

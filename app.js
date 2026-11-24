@@ -1,7 +1,7 @@
-import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel, planForecast } from './calc.js?v=18';
-import { getUsdRate, todayMsk, addDays } from './cbr.js?v=18';
-import { SUPABASE } from './config.js?v=18';
-import * as store from './store.js?v=18';
+import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel, planForecast } from './calc.js?v=19';
+import { getUsdRate, todayMsk, addDays } from './cbr.js?v=19';
+import { SUPABASE } from './config.js?v=19';
+import * as store from './store.js?v=19';
 
 const $ = s => document.querySelector(s);
 const nf = d => new Intl.NumberFormat('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d });
