@@ -45,7 +45,7 @@ test('без ООО — поток напрямую в Гонконг, Дуба�
   assert.equal(r.units[0].id, 0);
   near(r.units[0].transitRub, 1e6);
   near(r.units[0].dubaiUsd, 10000);
-  near(clientQuote(1e6, 80, p, false), r.saleUsdt);
+  near(clientQuote(1e6, 80, p, 0), r.saleUsdt);
 });
 
 test('годовые и разовые статьи', () => {
@@ -95,11 +95,24 @@ test('надбавка к ЦБ в рублях; старый формат в % �
 
 test('продажа: своё агентское ООО и свой Дубай', () => {
   const p = structuredClone(DEFAULT_PARAMS);
-  p.sale.agentPct = 0.02; p.sale.dubai = [m('Комиссия', 1000)];
+  p.ooo[0].sale.agentPct = 0.02; p.sale.dubai = [m('Комиссия', 1000)];
   const r = calcDay([{ amount: 1e6, ooo: 1 }], 80, p, 1);
   near(r.units[0].sale.usdt, 1e6 * (1 - 0.02) * (1 - 0.025) / 81);
   near(r.saleUsdt, r.saleConvUsdt - 1000);
   near(clientQuote(1e6, 80, p), r.saleConvUsdt);
   const rep = periodReport([{ date: '2026-12-01', ops: [{ amount: 1e6, ooo: 1 }], cb: 80, params: p }], p, { kind: 'month', months: ['2026-12'] });
   near(rep.saleUsdt, rep.saleConvUsdt - 1000);
+});
+
+test('у каждого ООО свои проценты; старые общие проценты переносятся во все ООО', () => {
+  const p = structuredClone(DEFAULT_PARAMS);
+  p.ooo[1].active = true; p.ooo[1].agentPct = 0.03;
+  const r = calcDay([{ amount: 1e6, ooo: 1 }, { amount: 1e6, ooo: 2 }], 80, p, 0);
+  near(r.units.find(u => u.id === 1).rf.agentRub, 15000);
+  near(r.units.find(u => u.id === 2).rf.agentRub, 30000);
+  const old = { agentPct: 0.02, bankPct: 0.01, sale: { agentPct: 0.018, markupRub: 1, hkPct: 0.025, dubai: [] }, ooo: DEFAULT_PARAMS.ooo.map(({ agentPct, bankPct, vatPct, vatOnTop, profitTaxPct, sale, ...o }) => o) };
+  const r2 = calcDay([{ amount: 1e6, ooo: 1 }], 80, old, 0);
+  near(r2.units[0].rf.agentRub, 20000);
+  near(r2.units[0].rf.bankRub, 10000);
+  near(r2.units[0].sale.usdt, 1e6 * (1 - 0.018) * (1 - 0.025) / 81);
 });

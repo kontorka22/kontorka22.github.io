@@ -6,42 +6,36 @@
 //
 // Статья расходов: { id, name, amount, period: 'month' | 'year' | 'once', from: 'YYYY-MM' }
 
+// У каждого ООО свои проценты и статьи — и для себестоимости, и для продажи.
+const OOO_COST = { agentPct: 0.015, vatPct: 0.22, vatOnTop: false, bankPct: 0.005, profitTaxPct: 0.25 };
+const OOO_SALE = { agentPct: 0.015, vatPct: 0.22, vatOnTop: false };
+const mkOoo = (id, active) => ({ id, name: `ООО ${id}`, active, ...OOO_COST, expenses: [], sale: { ...OOO_SALE } });
+
 export const DEFAULT_PARAMS = {
-  // ООО (одинаково для всех ООО)
-  agentPct: 0.015,        // агентское вознаграждение, % от потока
-  vatPct: 0.22,           // НДС
-  vatOnTop: false,        // false — НДС внутри вознаграждения (22/122)
-  bankPct: 0.005,         // комиссия банка РФ, % от потока
-  profitTaxPct: 0.25,     // налог на прибыль
-  // Гонконг
-  cost: { markupRub: 1, hkPct: 0.02 },     // себестоимость: курс ЦБ + 1 ₽, комиссия ГК 2%
-  // продажа — своя структура ООО → Гонконг → Дубай с отдельными значениями
-  sale: {
-    agentPct: 0.015, vatPct: 0.22, vatOnTop: false, // ООО
-    markupRub: 1, hkPct: 0.025,                     // Гонконг: курс ЦБ + 1 ₽, комиссия 2,5%
-    dubai: [],                                      // Дубай: статьи
-  },
-  // Расходы
-  dubai: [],
-  ooo: [
-    { id: 1, name: 'ООО 1', active: true, expenses: [] },
-    { id: 2, name: 'ООО 2', active: false, expenses: [] },
-    { id: 3, name: 'ООО 3', active: false, expenses: [] },
-  ],
+  ooo: [mkOoo(1, true), mkOoo(2, false), mkOoo(3, false)],
+  dubai: [],                                // Дубай (себестоимость): статьи, USD
+  cost: { markupRub: 1, hkPct: 0.02 },      // Гонконг (себестоимость): курс ЦБ + 1 ₽, комиссия 2%
+  sale: { markupRub: 1, hkPct: 0.025, dubai: [] }, // продажа: Гонконг ЦБ + 1 ₽, 2,5%; свои статьи Дубая
 };
 
 export function normalizeParams(p) {
   const out = { ...structuredClone(DEFAULT_PARAMS), ...structuredClone(p || {}) };
   if (!Array.isArray(out.dubai)) out.dubai = [];
   if (!Array.isArray(out.ooo) || out.ooo.length !== 3) out.ooo = structuredClone(DEFAULT_PARAMS.ooo);
+  // раньше проценты ООО были общими (p.agentPct, p.sale.agentPct…) — раздаём их каждому ООО
+  const oldCost = Object.fromEntries(Object.keys(OOO_COST).filter(k => p?.[k] != null).map(k => [k, p[k]]));
+  const oldSale = Object.fromEntries(Object.keys(OOO_SALE).filter(k => p?.sale?.[k] != null).map(k => [k, p.sale[k]]));
+  out.ooo = out.ooo.map((o, i) => ({ ...mkOoo(i + 1, !!o.active), ...oldCost, ...o, sale: { ...OOO_SALE, ...oldSale, ...(o.sale || {}) }, expenses: o.expenses || [] }));
+  for (const k of Object.keys(OOO_COST)) delete out[k];
   // надбавка к ЦБ раньше была в %, теперь в рублях
   for (const side of ['cost', 'sale']) {
     if (out[side].markupRub == null) out[side] = { ...DEFAULT_PARAMS[side], hkPct: out[side].hkPct ?? DEFAULT_PARAMS[side].hkPct };
     delete out[side].markupPct;
   }
-  // продажа раньше была только «Гонконг» — дополняем ООО и Дубаем, надбавка по умолчанию +1 ₽
-  if (out.sale.agentPct == null) out.sale = { ...structuredClone(DEFAULT_PARAMS.sale), hkPct: out.sale.hkPct };
+  // продажа раньше была только «Гонконг» (+1,3 ₽) — надбавка по умолчанию теперь +1 ₽
+  if (p?.sale && p.sale.agentPct == null && p.sale.dubai == null) out.sale = { ...structuredClone(DEFAULT_PARAMS.sale), hkPct: out.sale.hkPct };
   if (!Array.isArray(out.sale.dubai)) out.sale.dubai = [];
+  for (const k of Object.keys(OOO_SALE)) delete out.sale[k];
   for (const k of ['expenses', 'payrollMonthRub', 'dubaiNominalUsdMonth', 'dubaiAccountingUsdMonth']) delete out[k];
   return out;
 }
@@ -72,7 +66,7 @@ function hk(transitRub, cb, { markupRub, hkPct }) {
 const saleRetained = (flow, s) => flow * s.agentPct * (s.vatOnTop ? 1 + s.vatPct : 1);
 
 /** ООО: что удерживается из потока и что остаётся у ООО. fixedRub — расходы ООО за период. */
-function oooPart(flow, p, fixedRub) {
+function oooPart(flow, p, fixedRub) { // p — проценты конкретного ООО
   const agentRub = flow * p.agentPct;
   const vatRub = p.vatOnTop ? agentRub * p.vatPct : (agentRub * p.vatPct) / (1 + p.vatPct);
   const retainedRub = agentRub + (p.vatOnTop ? vatRub : 0);
@@ -106,10 +100,10 @@ export function calcDay(ops, cb, pIn, share) {
     const flow = flowBy[id] || 0;
     const isOoo = id !== 0;
     const fixed = isOoo && o?.active ? monthlySum(o.expenses) * share : 0;
-    const rf = isOoo ? oooPart(flow, p, fixed) : null;
+    const rf = isOoo ? oooPart(flow, o, fixed) : null;
     const transitRub = flow - (rf ? rf.retainedRub : 0);
     const cost = hk(transitRub, cb, p.cost);
-    const sale = hk(flow - (isOoo ? saleRetained(flow, p.sale) : 0), cb, p.sale);
+    const sale = hk(flow - (isOoo ? saleRetained(flow, o.sale) : 0), cb, p.sale);
     const getsDubai = (isOoo && o?.active) || (!isOoo && !act.length);
     const dubai = getsDubai ? dubaiPerUnit : 0;
     const saleDubai = getsDubai ? saleDubaiPerUnit : 0;
@@ -137,12 +131,13 @@ export function calcDay(ops, cb, pIn, share) {
  * Сколько USDT получит клиент за рубли по продаже (через ООО или напрямую) и обратно.
  * Без постоянных расходов Дубая продажи — они распределяются на весь поток дня.
  */
-export function clientQuote(rub, cb, pIn, viaOoo = true) {
+export function clientQuote(rub, cb, pIn, oooId = 1) {
   const p = normalizeParams(pIn);
-  return hk(rub - (viaOoo ? saleRetained(rub, p.sale) : 0), cb, p.sale).usdt;
+  const o = oooId ? p.ooo.find(x => x.id === +oooId) : null;
+  return hk(rub - (o ? saleRetained(rub, o.sale) : 0), cb, p.sale).usdt;
 }
-export function rubForUsdt(usdt, cb, pIn, viaOoo = true) {
-  const per = clientQuote(1, cb, pIn, viaOoo);
+export function rubForUsdt(usdt, cb, pIn, oooId = 1) {
+  const per = clientQuote(1, cb, pIn, oooId);
   return per > 0 ? usdt / per : 0;
 }
 
@@ -195,7 +190,7 @@ export function periodReport(days, pIn, period) {
       const lumps = o.active && !isDay ? lumpsIn(o.expenses, m) : [];
       const lump = lumps.reduce((a, e) => a + +e.amount, 0);
       const rev = s('revenueRub'), bank = s('bankRub');
-      const tax = Math.max(0, rev - bank - fixed - lump) * p.profitTaxPct;
+      const tax = Math.max(0, rev - bank - fixed - lump) * o.profitTaxPct;
       t.flow += us.reduce((a, u) => a + u.flow, 0);
       t.agentRub += s('agentRub'); t.vatRub += s('vatRub'); t.revenueRub += rev; t.bankRub += bank;
       t.fixedRub += fixed; t.lumpRub += lump; t.taxRub += tax; t.lumps.push(...lumps);

@@ -85,11 +85,11 @@ function renderOooPick() {
   $('#oooPick').innerHTML = act.length > 1
     ? `<span class="muted small">Поступает на</span>${act.map(o => `<button type="button" data-ooo="${o.id}" class="${o.id === st.ooo ? 'on' : ''}">${esc(o.name)}</button>`).join('')}`
     : act.length === 0 ? '<span class="muted small">ООО выключены — поток идёт напрямую в Гонконг</span>' : '';
-  document.querySelectorAll('[data-ooo]').forEach(b => b.addEventListener('click', () => { st.ooo = +b.dataset.ooo; renderOooPick(); }));
+  document.querySelectorAll('[data-ooo]').forEach(b => b.addEventListener('click', () => { st.ooo = +b.dataset.ooo; renderOooPick(); renderQuote(); }));
 }
 
 function renderQuote() {
-  const cb = effectiveCb(), p = store.getParams(), via = activeOoo(p).length > 0;
+  const cb = effectiveCb(), p = store.getParams(), via = st.ooo;
   const isRub = st.qMode === 'rub';
   $('#qLabel').textContent = isRub ? 'Клиент платит, ₽' : 'Клиент хочет получить, USDT';
   $('#qCur').textContent = isRub ? '₽' : 'USDT';
@@ -126,7 +126,7 @@ function renderDay() {
 
   const many = p.ooo.filter(o => o.active).length > 1;
   $('#ops').innerHTML = ops.length ? `<div class="card ops"><div class="muted small">Поступления</div>${[...ops].reverse().map(o => `
-    <div class="op"><div><b>${rub(o.amount)}</b> <span class="muted small">→ ${usdt(clientQuote(o.amount, cb, p, !!o.ooo || o.ooo === undefined), 2)}</span>
+    <div class="op"><div><b>${rub(o.amount)}</b> <span class="muted small">→ ${usdt(clientQuote(o.amount, cb, p, o.ooo ?? (p.ooo.find(x => x.active)?.id || 1)), 2)}</span>
       <div class="muted small">${o.at ? new Date(o.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''}${many && o.ooo ? ' · ' + esc(p.ooo.find(x => x.id === o.ooo)?.name || '') : ''}${o.by ? ' · ' + esc(o.by) : ''}</div></div>
       <button type="button" class="x" data-op="${o.id}" aria-label="Удалить">×</button></div>`).join('')}</div>` : '';
   document.querySelectorAll('[data-op]').forEach(b => b.addEventListener('click', () => removeOp(b.dataset.op)));
@@ -155,7 +155,7 @@ moneyInput($('#qIn'), v => { st.qVal = v; renderQuote(); }, true);
 $('#qSwap').addEventListener('click', () => { st.qMode = st.qMode === 'rub' ? 'usdt' : 'rub'; st.qVal = 0; $('#qIn').value = ''; renderQuote(); $('#qIn').focus(); });
 $('#qAdd').addEventListener('click', () => {
   const p = store.getParams();
-  addOp(st.qMode === 'rub' ? st.qVal : Math.ceil(rubForUsdt(st.qVal, effectiveCb(), p, activeOoo(p).length > 0)));
+  addOp(st.qMode === 'rub' ? st.qVal : Math.ceil(rubForUsdt(st.qVal, effectiveCb(), p, st.ooo)));
 });
 $('#qIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('#qAdd').click(); });
 $('#dPrev').addEventListener('click', () => loadDate(addDays(st.date, -1)));
@@ -296,23 +296,26 @@ function fieldHtml(path, label, type, p) {
 }
 const ownerList = (p, owner) => owner === 'dubai' ? p.dubai : owner === 'saleDubai' ? p.sale.dubai : p.ooo.find(o => 'ooo' + o.id === owner).expenses;
 const total = items => `${fmt(monthlySum(items))}`;
+const oooHead = o => `<div class="ohead">
+    <input class="oname" value="${esc(o.name)}" data-oname="${o.id}" aria-label="Название ООО">
+    <label class="switch" title="Учитывать в расчётах"><input type="checkbox" data-oon="${o.id}" ${o.active ? 'checked' : ''}><span></span></label>
+  </div>`;
 
 function renderCost() {
   const p = store.getParams(), act = activeOoo(p);
   $('#costBody').innerHTML = `
     <div class="card">
       <div class="ghead"><h3>🇷🇺 ООО</h3><span class="muted small">в расчётах: <b>${act.length} из 3</b></span></div>
-      ${fieldHtml('agentPct', 'Агентское вознаграждение', '%', p)}
-      ${fieldHtml('vatPct', 'НДС', '%', p)}
-      ${fieldHtml('vatOnTop', 'НДС сверху вознаграждения', 'bool', p)}
-      ${fieldHtml('bankPct', 'Комиссия банка РФ', '%', p)}
-      ${fieldHtml('profitTaxPct', 'Налог на прибыль', '%', p)}
-      ${p.ooo.map(o => `<div class="ooo ${o.active ? '' : 'off'}">
-        <div class="ohead">
-          <input class="oname" value="${esc(o.name)}" data-oname="${o.id}" aria-label="Название ООО">
-          <label class="switch" title="Учитывать в расчётах"><input type="checkbox" data-oon="${o.id}" ${o.active ? 'checked' : ''}><span></span></label>
-        </div>
-        ${o.active ? `<div class="muted small">расходы в месяц <b data-total="ooo${o.id}">${total(o.expenses)}</b> ₽</div>${itemsHtml(o.expenses, '₽', 'ooo' + o.id)}` : '<div class="muted small">не учитывается в расчётах</div>'}
+      ${p.ooo.map((o, i) => `<div class="ooo ${o.active ? '' : 'off'}">
+        ${oooHead(o)}
+        ${o.active ? `
+          ${fieldHtml(`ooo.${i}.agentPct`, 'Агентское вознаграждение', '%', p)}
+          ${fieldHtml(`ooo.${i}.vatPct`, 'НДС', '%', p)}
+          ${fieldHtml(`ooo.${i}.vatOnTop`, 'НДС сверху вознаграждения', 'bool', p)}
+          ${fieldHtml(`ooo.${i}.bankPct`, 'Комиссия банка РФ', '%', p)}
+          ${fieldHtml(`ooo.${i}.profitTaxPct`, 'Налог на прибыль', '%', p)}
+          <div class="subhead">Статьи расходов · в месяц <b data-total="ooo${o.id}">${total(o.expenses)}</b> ₽</div>
+          ${itemsHtml(o.expenses, '₽', 'ooo' + o.id)}` : '<div class="muted small">не учитывается в расчётах</div>'}
       </div>`).join('')}
     </div>
     <div class="card">
@@ -333,11 +336,14 @@ function renderSale() {
   const p = store.getParams(), act = activeOoo(p);
   $('#saleBody').innerHTML = `
     <div class="card">
-      <h3>🇷🇺 ООО</h3>
-      ${fieldHtml('sale.agentPct', 'Агентское вознаграждение', '%', p)}
-      ${fieldHtml('sale.vatPct', 'НДС', '%', p)}
-      ${fieldHtml('sale.vatOnTop', 'НДС сверху вознаграждения', 'bool', p)}
-      <div class="muted small">Какие ООО работают — включается во вкладке «Себестоимость».</div>
+      <div class="ghead"><h3>🇷🇺 ООО</h3><span class="muted small">в расчётах: <b>${act.length} из 3</b></span></div>
+      ${p.ooo.map((o, i) => `<div class="ooo ${o.active ? '' : 'off'}">
+        ${oooHead(o)}
+        ${o.active ? `
+          ${fieldHtml(`ooo.${i}.sale.agentPct`, 'Агентское вознаграждение', '%', p)}
+          ${fieldHtml(`ooo.${i}.sale.vatPct`, 'НДС', '%', p)}
+          ${fieldHtml(`ooo.${i}.sale.vatOnTop`, 'НДС сверху вознаграждения', 'bool', p)}` : '<div class="muted small">не учитывается в расчётах</div>'}
+      </div>`).join('')}
     </div>
     <div class="card">
       <div class="ghead"><h3>🇦🇪 Дубай</h3><span class="muted small">в месяц <b data-total="saleDubai">${total(p.sale.dubai)}</b> USD</span></div>
@@ -354,13 +360,17 @@ function renderSale() {
 }
 
 function updatePreviews() {
-  const p = store.getParams(), act = activeOoo(p), via = act.length > 0;
+  const p = store.getParams(), act = activeOoo(p);
   if (!todayCb) return;
-  const r = calcDay([{ amount: 1e7, ooo: act[0]?.id ?? 0 }], todayCb, p, 0);
-  $('#costPreview').textContent = `${fmt(r.costRate, 2)} ₽ за 1 USDT`;
-  $('#costPreviewNote').textContent = `ЦБ ${fmt(todayCb, 4)}${via ? '' : ' · ООО выключены'} · без постоянных расходов — они зависят от потока за день`;
-  $('#salePreview').textContent = `${fmt(1 / clientQuote(1, todayCb, p, via), 2)} ₽ за 1 USDT`;
-  $('#salePreviewNote').textContent = `ЦБ ${fmt(todayCb, 4)}${via ? '' : ' · ООО выключены'} · без постоянных расходов Дубая`;
+  const ids = act.length ? act.map(o => o.id) : [0];
+  const costR = id => calcDay([{ amount: 1e7, ooo: id }], todayCb, p, 0).costRate;
+  const saleR = id => 1 / clientQuote(1, todayCb, p, id);
+  const others = f => ids.slice(1).map(id => ` · ${esc(p.ooo.find(o => o.id === id).name)}: ${fmt(f(id), 2)}`).join('');
+  const who = ids[0] ? (act.length > 1 ? ` · ${p.ooo.find(o => o.id === ids[0]).name}` : '') : ' · ООО выключены';
+  $('#costPreview').textContent = `${fmt(costR(ids[0]), 2)} ₽ за 1 USDT`;
+  $('#costPreviewNote').textContent = `ЦБ ${fmt(todayCb, 4)}${who}${others(costR)} · без постоянных расходов — они зависят от потока за день`;
+  $('#salePreview').textContent = `${fmt(saleR(ids[0]), 2)} ₽ за 1 USDT`;
+  $('#salePreviewNote').textContent = `ЦБ ${fmt(todayCb, 4)}${who}${others(saleR)} · без постоянных расходов Дубая`;
 }
 
 function saveField(el) {
