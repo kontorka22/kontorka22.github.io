@@ -110,7 +110,7 @@ function renderDay() {
 
   const saved = store.getDay(st.date);
   const cb = saved?.cb || effectiveCb();
-  const p = saved?.params || store.getParams();
+  const p = store.getParams();
   const ops = saved?.ops || [];
   const r = cb && ops.length ? calcDay(ops, cb, p, dayShareOfMonth(st.date)) : null;
 
@@ -137,7 +137,7 @@ function addOp(amount) {
   if (!cb || !amount) return;
   const saved = store.getDay(st.date);
   const ops = [...(saved?.ops || []), { id: uid(), amount: Math.round(amount), ooo: st.ooo, at: new Date().toISOString(), by: store.syncCfg().email || '' }];
-  store.saveDay({ date: st.date, ops, flow: ops.reduce((s, o) => s + o.amount, 0), cb, cbDate: st.cbManual != null ? null : st.cbDate, cbManual: st.cbManual != null, params: store.getParams() });
+  store.saveDay({ date: st.date, ops, flow: ops.reduce((s, o) => s + o.amount, 0), cb, cbDate: st.cbManual != null ? null : st.cbDate, cbManual: st.cbManual != null });
   st.qVal = 0; $('#qIn').value = '';
   renderDay();
 }
@@ -336,7 +336,7 @@ function renderCost() {
       ${fieldHtml('cost.markupRub', 'Надбавка к курсу ЦБ', 'rub', p)}
       ${fieldHtml('cost.hkPct', 'Комиссия банка ГК', '%', p)}
     </div>
-    <p class="muted small pad">Уже внесённые дни не пересчитываются — у каждого свои проценты и курс на момент ввода.</p>`;
+    <p class="muted small pad">Любое изменение сразу пересчитывает все дни и отчёты. Курс ЦБ у каждого дня свой — на его дату.</p>`;
   updatePreviews();
 }
 
@@ -367,7 +367,7 @@ function renderSale() {
       ${fieldHtml('sale.markupRub', 'Надбавка к курсу ЦБ', 'rub', p)}
       ${fieldHtml('sale.hkPct', 'Комиссия ГК', '%', p)}
     </div>
-    <p class="muted small pad">Уже внесённые дни не пересчитываются — у каждого свои проценты и курс на момент ввода.</p>`;
+    <p class="muted small pad">Любое изменение сразу пересчитывает все дни и отчёты. Курс ЦБ у каждого дня свой — на его дату.</p>`;
   updatePreviews();
 }
 

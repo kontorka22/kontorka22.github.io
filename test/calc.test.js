@@ -133,3 +133,14 @@ test('нерезидентский счёт: только комиссия ба�
   near(nr.bankRub, 10000); near(nr.resultRub, 0); near(nr.taxRub, 0);
   assert.equal(channels(p).length, 4);
 });
+
+test('поступление через выключенный канал считается через включённый; проценты — текущие', () => {
+  const p = structuredClone(DEFAULT_PARAMS);
+  p.ooo[0].active = false; p.nr.active = true; p.nr.bankPct = 0.01;
+  const r = calcDay([{ amount: 2e6, ooo: 0 }, { amount: 1e6, ooo: 1 }], 80, p, 0);
+  assert.equal(r.units.length, 1);
+  assert.equal(r.units[0].id, 4);
+  near(r.units[0].rf.bankRub, 30000);
+  const rep = periodReport([{ date: '2026-11-24', ops: [{ amount: 2e6, ooo: 0 }], cb: 80, params: { old: true } }], p, { kind: 'day', date: '2026-11-24' });
+  near(rep.ooo.find(o => o.id === 4).bankRub, 20000);
+});

@@ -103,7 +103,12 @@ export function calcDay(ops, cb, pIn, share) {
 
   // группы: каждое ООО (включённое или с поступлениями) + «без ООО»
   const flowBy = {};
-  for (const o of ops) { const k = act.length ? (o.ooo || act[0].id) : 0; flowBy[k] = (flowBy[k] || 0) + (+o.amount || 0); }
+  // поступление считается через свой канал, если он включён; иначе — через первый включённый
+  // (или напрямую в Гонконг, если всё выключено)
+  for (const o of ops) {
+    const k = act.some(a => a.id === o.ooo) ? o.ooo : (act[0]?.id ?? 0);
+    flowBy[k] = (flowBy[k] || 0) + (+o.amount || 0);
+  }
   const keys = new Set([...act.map(o => o.id), ...Object.keys(flowBy).map(Number)]);
 
   const units = [...keys].sort().map(id => {
@@ -166,7 +171,7 @@ export function monthsOfYear(year, todayYm) {
 
 /**
  * Отчёт за набор месяцев (месяц или год) или за один день.
- * days: [{ date, ops, cb, params }] — у каждого дня свой снимок процентов и курса.
+ * days: [{ date, ops, cb }] — у каждого дня свой курс ЦБ; проценты и расходы — текущие (p).
  * p — текущие параметры: статьи расходов и какие ООО включены.
  */
 export function periodReport(days, pIn, period) {
@@ -177,7 +182,7 @@ export function periodReport(days, pIn, period) {
   const share = isDay ? dayShareOfMonth(period.date) : 1;
 
   // переменная часть — по дням, без постоянных расходов
-  const rows = days.map(d => ({ d, r: calcDay(d.ops, d.cb, d.params, 0) }));
+  const rows = days.map(d => ({ d, r: calcDay(d.ops, d.cb, p, 0) }));
   const flow = rows.reduce((s, x) => s + x.r.flow, 0);
   const convUsdt = rows.reduce((s, x) => s + x.r.convUsdt, 0);
   const saleConvUsdt = rows.reduce((s, x) => s + x.r.saleConvUsdt, 0);
