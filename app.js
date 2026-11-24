@@ -273,7 +273,7 @@ function itemsHtml(items, cur, owner) {
   return items.map(e => `<div class="exp" data-owner="${owner}" data-id="${e.id}">
       <input class="ename" value="${esc(e.name)}" data-f="name" placeholder="Название статьи">
       <div class="erow">
-        <div class="eamt"><input value="${fmt(+e.amount || 0)}" inputmode="numeric" data-f="amount"><span>${cur}</span></div>
+        <div class="eamt"><input value="${+e.amount ? fmt(+e.amount) : ''}" placeholder="0" inputmode="numeric" data-f="amount"><span>${cur}</span></div>
         <select data-f="period">${Object.entries(PERIODS).map(([k, v]) => `<option value="${k}" ${e.period === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
         <button type="button" class="x" data-del aria-label="Удалить">×</button>
       </div>
@@ -286,8 +286,8 @@ function renderExpenses() {
   const dm = monthlySum(p.dubai);
   $('#expBody').innerHTML = `
     <div class="card">
-      <div class="ghead"><h3>🇦🇪 Дубай</h3><span class="muted small">в месяц <b>${fmt(dm)} USD</b></span></div>
-      <div class="muted small">Работает всегда.${act.length > 1 ? ` Делится на ${act.length} ООО — по ${fmt(dm / act.length)} USD на каждое.` : ''}</div>
+      <div class="ghead"><h3>🇦🇪 Дубай</h3><span class="muted small">в месяц <b id="dubaiTotal">${fmt(dm)} USD</b></span></div>
+      <div class="muted small">Работает всегда.<span id="dubaiSplit">${act.length > 1 ? ` Делится на ${act.length} ООО — по ${fmt(dm / act.length)} USD на каждое.` : ''}</span></div>
       ${itemsHtml(p.dubai, 'USD', 'dubai')}
     </div>
     <div class="card">
@@ -297,26 +297,41 @@ function renderExpenses() {
           <input class="oname" value="${esc(o.name)}" data-oname="${o.id}" aria-label="Название ООО">
           <label class="switch" title="Учитывать в расчётах"><input type="checkbox" data-oon="${o.id}" ${o.active ? 'checked' : ''}><span></span></label>
         </div>
-        ${o.active ? `<div class="muted small">в расчётах · в месяц <b>${fmt(monthlySum(o.expenses))} ₽</b></div>${itemsHtml(o.expenses, '₽', 'ooo' + o.id)}` : '<div class="muted small">не учитывается в расчётах</div>'}
+        ${o.active ? `<div class="muted small">в расчётах · в месяц <b data-ototal="${o.id}">${fmt(monthlySum(o.expenses))} ₽</b></div>${itemsHtml(o.expenses, '₽', 'ooo' + o.id)}` : '<div class="muted small">не учитывается в расчётах</div>'}
       </div>`).join('')}
     </div>`;
 }
 const ownerList = (p, owner) => (owner === 'dubai' ? p.dubai : p.ooo.find(o => 'ooo' + o.id === owner).expenses);
+// Сохраняем каждое изменение сразу. Перерисовываем список только когда меняется его
+// состав (период, добавление, удаление, вкл/выкл ООО) — иначе поле, в которое
+// пользователь только что нажал, пересоздаётся и набранное теряется.
+function saveExpField(el) {
+  const p = store.getParams();
+  if (el.dataset.oname) { p.ooo.find(o => o.id === +el.dataset.oname).name = el.value.trim() || `ООО ${el.dataset.oname}`; store.setParams(p); return; }
+  const row = el.closest('.exp'); if (!row) return;
+  const item = ownerList(p, row.dataset.owner).find(x => x.id === row.dataset.id);
+  const f = el.dataset.f;
+  item[f] = f === 'amount' ? parseNum(el.value) : el.value;
+  if (f === 'period' && item.period !== 'month' && !item.from) item.from = todayMsk().slice(0, 7);
+  store.setParams(p);
+  updateExpTotals(p);
+}
+function updateExpTotals(p) {
+  const act = activeOoo(p), dm = monthlySum(p.dubai);
+  $('#dubaiTotal').textContent = `${fmt(dm)} USD`;
+  $('#dubaiSplit').textContent = act.length > 1 ? ` Делится на ${act.length} ООО — по ${fmt(dm / act.length)} USD на каждое.` : '';
+  for (const o of p.ooo) { const el = document.querySelector(`[data-ototal="${o.id}"]`); if (el) el.textContent = `${fmt(monthlySum(o.expenses))} ₽`; }
+}
+$('#expBody').addEventListener('input', e => {
+  if (e.target.dataset.f === 'amount') {
+    const d = e.target.value.replace(/\D/g, ''); e.target.value = d ? fmt(parseInt(d, 10)) : '';
+  }
+  if (e.target.dataset.f === 'amount' || e.target.dataset.f === 'name' || e.target.dataset.oname) saveExpField(e.target);
+});
 $('#expBody').addEventListener('change', e => {
   const p = store.getParams();
   if (e.target.dataset.oon) { p.ooo.find(o => o.id === +e.target.dataset.oon).active = e.target.checked; store.setParams(p); renderExpenses(); return; }
-  if (e.target.dataset.oname) { p.ooo.find(o => o.id === +e.target.dataset.oname).name = e.target.value.trim() || `ООО ${e.target.dataset.oname}`; store.setParams(p); return; }
-  const row = e.target.closest('.exp'); if (!row) return;
-  const item = ownerList(p, row.dataset.owner).find(x => x.id === row.dataset.id);
-  const f = e.target.dataset.f;
-  item[f] = f === 'amount' ? parseNum(e.target.value) : e.target.value;
-  if (f === 'period' && item.period !== 'month' && !item.from) item.from = todayMsk().slice(0, 7);
-  store.setParams(p);
-  renderExpenses();
-});
-$('#expBody').addEventListener('input', e => {
-  if (e.target.dataset.f !== 'amount') return;
-  const d = e.target.value.replace(/\D/g, ''); e.target.value = d ? fmt(parseInt(d, 10)) : '';
+  if (e.target.dataset.f === 'period' || e.target.dataset.f === 'from') { saveExpField(e.target); if (e.target.dataset.f === 'period') renderExpenses(); }
 });
 $('#expBody').addEventListener('click', e => {
   const p = store.getParams();
@@ -347,12 +362,12 @@ const COST_FIELDS = [
   ['bankPct', 'Комиссия банка РФ', '%'],
   ['profitTaxPct', 'Налог на прибыль', '%'],
   ['🇭🇰 Гонконг'],
-  ['cost.markupPct', 'Надбавка к курсу ЦБ', '%'],
+  ['cost.markupRub', 'Надбавка к курсу ЦБ', 'rub'],
   ['cost.hkPct', 'Комиссия банка ГК', '%'],
 ];
 const SALE_FIELDS = [
   ['🇭🇰 Гонконг — для клиента'],
-  ['sale.markupPct', 'Надбавка к курсу ЦБ', '%'],
+  ['sale.markupRub', 'Надбавка к курсу ЦБ', 'rub'],
   ['sale.hkPct', 'Комиссия ГК', '%'],
 ];
 function formHtml(fields) {
@@ -363,7 +378,7 @@ function formHtml(fields) {
     const v = getPath(p, k);
     html += type === 'bool'
       ? `<label class="toggle">${label}<input type="checkbox" name="${k}" ${v ? 'checked' : ''}></label>`
-      : `<label class="prm"><span>${label}</span><span class="pin"><input name="${k}" inputmode="decimal" value="${fmt(v * 100, 3).replace(/,?0+$/, '')}"><i>%</i></span></label>`;
+      : `<label class="prm"><span>${label}</span><span class="pin"><input name="${k}" inputmode="decimal" value="${fmt(type === 'rub' ? v : v * 100, 3).replace(/,?0+$/, '')}"><i>${type === 'rub' ? '₽' : '%'}</i></span></label>`;
   }
   return html + '</fieldset><p class="muted small">Уже внесённые дни не пересчитываются — у каждого свои проценты и курс на момент ввода.</p>';
 }
@@ -371,7 +386,7 @@ function bindForm(form, fields, after) {
   form.addEventListener('change', e => {
     const f = fields.find(x => x[0] === e.target.name); if (!f) return;
     const p = store.getParams();
-    setPath(p, f[0], f[2] === 'bool' ? e.target.checked : parseNum(e.target.value) / 100);
+    setPath(p, f[0], f[2] === 'bool' ? e.target.checked : f[2] === 'rub' ? parseNum(e.target.value) : parseNum(e.target.value) / 100);
     store.setParams(p); after();
   });
 }

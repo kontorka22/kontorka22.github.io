@@ -8,7 +8,7 @@ const m = (name, amount, period = 'month', from) => ({ id: name, name, amount, p
 // параметры как в таблице: одно ООО с ФОТ 350 000, Дубай 5 000 + 5 000
 function sheetParams(cb) {
   const p = structuredClone(DEFAULT_PARAMS);
-  p.cost = { markupPct: 1 / cb, hkPct: 0.0175 };
+  p.cost = { markupRub: 1, hkPct: 0.0175 }; // как в таблице: B2+1
   p.ooo[0].expenses = [m('ФОТ', 350000)];
   p.dubai = [m('Номинал', 5000), m('Бух', 5000)];
   return p;
@@ -83,4 +83,12 @@ test('котировка клиенту и обратно', () => {
   const q = clientQuote(1e6, 82.5, DEFAULT_PARAMS);
   near(q, calcDay([{ amount: 1e6, ooo: 1 }], 82.5, DEFAULT_PARAMS, 0).saleUsdt);
   near(rubForUsdt(q, 82.5, DEFAULT_PARAMS), 1e6, 1e-6);
+});
+
+test('надбавка к ЦБ в рублях; старый формат в % переводится', () => {
+  const r = calcDay([{ amount: 1e6, ooo: 1 }], 80, DEFAULT_PARAMS, 0);
+  near(r.units[0].cost.convRate, 81);
+  near(r.units[0].sale.convRate, 81.3);
+  const old = { ...structuredClone(DEFAULT_PARAMS), cost: { markupPct: 0.01, hkPct: 0.02 } };
+  near(calcDay([{ amount: 1e6, ooo: 1 }], 80, old, 0).units[0].cost.convRate, 81);
 });

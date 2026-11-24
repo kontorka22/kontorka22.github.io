@@ -1,6 +1,6 @@
 // Кеш оболочки приложения: открывается без сети. Курс ЦБ и синхронизация — всегда из сети.
-const VERSION = 'v6';
-const SHELL = ['./', 'index.html', 'style.css?v=6', 'app.js?v=6', 'calc.js', 'cbr.js', 'store.js', 'config.js',
+const VERSION = 'v8';
+const SHELL = ['./', 'index.html', 'style.css?v=7', 'app.js?v=7', 'calc.js', 'cbr.js', 'store.js', 'config.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 
 self.addEventListener('install', e => {
@@ -15,7 +15,8 @@ self.addEventListener('fetch', e => {
   if (url.origin !== location.origin || e.request.method !== 'GET') return; // ЦБ, Supabase — мимо кеша
   // сначала сеть (чтобы обновления приходили сразу), без сети — кеш
   e.respondWith(
-    fetch(e.request).then(r => { const copy = r.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); return r; })
+    // no-cache: всегда сверяемся с сервером, иначе браузер может отдать старую версию из своего кеша
+    fetch(e.request.url, { cache: 'no-cache' }).then(r => { const copy = r.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); return r; })
       .catch(() => caches.match(e.request, { ignoreSearch: false }).then(r => r || caches.match('index.html')))
   );
 });

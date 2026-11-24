@@ -14,8 +14,8 @@ export const DEFAULT_PARAMS = {
   bankPct: 0.005,         // комиссия банка РФ, % от потока
   profitTaxPct: 0.25,     // налог на прибыль
   // Гонконг
-  cost: { markupPct: 0.01, hkPct: 0.02 },   // себестоимость: ЦБ +1%, комиссия ГК 2%
-  sale: { markupPct: 0.013, hkPct: 0.025 }, // продажа: ЦБ +1,3%, комиссия ГК 2,5%
+  cost: { markupRub: 1, hkPct: 0.02 },     // себестоимость: курс ЦБ + 1 ₽, комиссия ГК 2%
+  sale: { markupRub: 1.3, hkPct: 0.025 },  // продажа: курс ЦБ + 1,3 ₽, комиссия ГК 2,5%
   // Расходы
   dubai: [],
   ooo: [
@@ -29,6 +29,11 @@ export function normalizeParams(p) {
   const out = { ...structuredClone(DEFAULT_PARAMS), ...structuredClone(p || {}) };
   if (!Array.isArray(out.dubai)) out.dubai = [];
   if (!Array.isArray(out.ooo) || out.ooo.length !== 3) out.ooo = structuredClone(DEFAULT_PARAMS.ooo);
+  // надбавка к ЦБ раньше была в %, теперь в рублях
+  for (const side of ['cost', 'sale']) {
+    if (out[side].markupRub == null) out[side] = { ...DEFAULT_PARAMS[side], hkPct: out[side].hkPct ?? DEFAULT_PARAMS[side].hkPct };
+    delete out[side].markupPct;
+  }
   for (const k of ['expenses', 'payrollMonthRub', 'dubaiNominalUsdMonth', 'dubaiAccountingUsdMonth']) delete out[k];
   return out;
 }
@@ -49,9 +54,9 @@ const lumpSum = (items, ym) => lumpsIn(items, ym).reduce((s, e) => s + (+e.amoun
 
 export const activeOoo = p => p.ooo.filter(o => o.active);
 
-function hk(transitRub, cb, { markupPct, hkPct }) {
+function hk(transitRub, cb, { markupRub, hkPct }) {
   const hkRub = transitRub * hkPct;
-  const convRate = cb * (1 + markupPct);
+  const convRate = cb + markupRub;
   return { hkRub, convRate, usdt: convRate > 0 ? (transitRub - hkRub) / convRate : 0 };
 }
 
