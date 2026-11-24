@@ -2,8 +2,8 @@
 // чтобы у обоих был один журнал, одни настройки и общая история изменений.
 // Вход по почте и паролю (Supabase Auth). Имя пользователя подписывает все изменения.
 
-import { DEFAULT_PARAMS, normalizeParams } from './calc.js?v=23';
-import { SUPABASE } from './config.js?v=23';
+import { DEFAULT_PARAMS, normalizeParams } from './calc.js?v=24';
+import { SUPABASE } from './config.js?v=24';
 
 const LS_DAYS = 'days-v1';
 const LS_PARAMS = 'params-v1';
@@ -188,7 +188,9 @@ async function api(path, opts = {}, retried = false) {
   // токен просрочился раньше, чем думал телефон (сон, сбитые часы) — продлеваем и повторяем один раз
   if (r.status === 401 && !retried) { setSession({ ...syncCfg(), exp: 0 }); return api(path, opts, true); }
   if (!r.ok) throw new Error(`Синхронизация: ${r.status} ${await r.text()}`);
-  return r.status === 204 || r.status === 201 ? null : r.json();
+  // при обновлении существующей записи сервер отвечает 200 без тела — это не ошибка
+  const body = await r.text();
+  return body ? JSON.parse(body) : null;
 }
 const upsert = (table, rows) => api(table, { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(rows) });
 
