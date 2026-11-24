@@ -1,7 +1,7 @@
-import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel } from './calc.js?v=13';
-import { getUsdRate, todayMsk, addDays } from './cbr.js?v=13';
-import { SUPABASE } from './config.js?v=13';
-import * as store from './store.js?v=13';
+import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel, planForecast } from './calc.js?v=15';
+import { getUsdRate, todayMsk, addDays } from './cbr.js?v=15';
+import { SUPABASE } from './config.js?v=15';
+import * as store from './store.js?v=15';
 
 const $ = s => document.querySelector(s);
 const nf = d => new Intl.NumberFormat('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -49,8 +49,8 @@ const askYes = (text, okText = 'Удалить') => modal({ text, okText, danger
 const askValue = (text, value) => modal({ text, input: value, okText: 'Сохранить' });
 
 // ---------------- вкладки ----------------
-const TITLES = { day: 'День', rep: 'Отчёт', cost: 'Себестоимость', sale: 'Продажа' };
-const RENDER = { day: () => renderDay(), rep: () => renderReport(), cost: () => renderCost(), sale: () => renderSale() };
+const TITLES = { day: 'День', rep: 'Отчёт', plan: 'План', cost: 'Себестоимость', sale: 'Продажа' };
+const RENDER = { day: () => renderDay(), rep: () => renderReport(), plan: () => renderPlan(), cost: () => renderCost(), sale: () => renderSale() };
 let currentTab = 'day';
 function openTab(name) {
   currentTab = name;
@@ -64,7 +64,7 @@ document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click
 
 // курс ЦБ на сегодня — для вкладок «Себестоимость» и «Продажа»
 let todayCb = null;
-getUsdRate(todayMsk()).then(r => { if (!r.notPublished) { todayCb = r.value; if (currentTab === 'cost' || currentTab === 'sale') RENDER[currentTab](); } }).catch(() => {});
+getUsdRate(todayMsk()).then(r => { if (!r.notPublished) { todayCb = r.value; if (['cost', 'sale', 'plan'].includes(currentTab)) RENDER[currentTab](); } }).catch(() => {});
 
 // ---------------- день ----------------
 const st = { date: todayMsk(), cb: null, cbDate: null, cbManual: null, cbErr: '', reqId: 0, qMode: 'rub', qVal: 0, ooo: null };
@@ -294,6 +294,93 @@ function renderReport() {
     if (rep.kind === 'month') { rep.kind = 'day'; rep.date = b.dataset.key; } else { rep.kind = 'month'; rep.month = b.dataset.key; }
     renderReport();
   }));
+}
+
+// ---------------- план ----------------
+let planMonth = todayMsk().slice(0, 7);
+function getPlan(p, ym) {
+  const saved = p.plans?.[ym] || {};
+  return { mode: saved.mode || 'day', amount: saved.amount || 0, days: saved.days ?? daysInMonth(ym), cb: saved.cb || 0 };
+}
+function savePlan(patch) {
+  const p = store.getParams();
+  p.plans = { ...(p.plans || {}), [planMonth]: { ...getPlan(p, planMonth), ...patch } };
+  store.setParams(p);
+}
+$('#plPrev').addEventListener('click', () => { planMonth = shiftMonth(planMonth, -1); renderPlan(); });
+$('#plNext').addEventListener('click', () => { planMonth = shiftMonth(planMonth, 1); renderPlan(); });
+
+function renderPlan() {
+  $('#plLabel').innerHTML = `<b>${monthName(planMonth)}</b>`;
+  const pl = getPlan(store.getParams(), planMonth);
+  const cbShown = pl.cb || todayCb || 0;
+  $('#planIn').innerHTML = `
+    <div class="seg big" id="planMode">
+      <button type="button" data-mode="day" class="${pl.mode === 'day' ? 'on' : ''}">Поток в день</button>
+      <button type="button" data-mode="month" class="${pl.mode === 'month' ? 'on' : ''}">Поток за месяц</button>
+    </div>
+    <div class="qinput"><input id="planAmount" inputmode="numeric" placeholder="0" value="${pl.amount ? fmt(pl.amount) : ''}" autocomplete="off"><span>₽</span></div>
+    <label class="prm"><span>Рабочих дней в месяце</span><span class="pin"><input id="planDays" inputmode="numeric" value="${pl.days}"><i>дн</i></span></label>
+    <label class="prm"><span>Курс ЦБ для прогноза</span><span class="pin"><input id="planCb" inputmode="decimal" value="${cbShown ? fmt(cbShown, 4) : ''}"><i>₽</i></span></label>
+    <div class="muted small">${pl.cb ? 'курс введён вручную' : 'сегодняшний курс ЦБ — можно поменять'}</div>`;
+  document.querySelectorAll('#planMode button').forEach(b => b.addEventListener('click', () => { savePlan({ mode: b.dataset.mode }); renderPlan(); }));
+  $('#planAmount').addEventListener('input', e => {
+    const d = e.target.value.replace(/\D/g, ''); e.target.value = d ? fmt(parseInt(d, 10)) : '';
+    savePlan({ amount: d ? parseInt(d, 10) : 0 }); renderPlanOut();
+  });
+  $('#planDays').addEventListener('input', e => { savePlan({ days: parseInt(e.target.value.replace(/\D/g, ''), 10) || 0 }); renderPlanOut(); });
+  $('#planCb').addEventListener('input', e => { savePlan({ cb: parseNum(e.target.value) }); renderPlanOut(); });
+  renderPlanOut();
+}
+
+function renderPlanOut() {
+  const p = store.getParams();
+  const pl = getPlan(p, planMonth);
+  const cb = pl.cb || todayCb;
+  if (!cb || !pl.amount || !pl.days) {
+    $('#planOut').innerHTML = `<p class="muted center">${!cb ? 'Нет курса ЦБ — введите его выше' : 'Введите поток и число рабочих дней — прогноз посчитается сразу'}</p>`;
+    return;
+  }
+  const r = planForecast(p, planMonth, { ...pl, cb });
+  const line = (l, v, cls = '') => `<div class="srow ${cls}"><span>${l}</span><span>${v}</span></div>`;
+
+  // факт за этот месяц
+  const fact = store.listDays().filter(d => d.date.startsWith(planMonth) && d.ops.length && d.cb);
+  const f = periodReport(fact, p, { kind: 'month', months: [planMonth] });
+  const done = r.flow ? f.flow / r.flow : 0;
+
+  $('#planOut').innerHTML = `
+    <div class="card hero">
+      <div class="muted small">Прогноз разницы за месяц — после всех расходов</div>
+      <div class="huge ${r.diffUsdt < 0 ? 'bad' : 'good'}">${sign(r.diffUsdt)} USDT</div>
+      <div class="muted small">≈ ${rub(r.diffUsdt * cb)} по курсу ЦБ ${fmt(cb, 2)}</div>
+      ${r.diffUsdt < 0 && r.convUsdt > r.saleUsdt ? `<div class="hint">Чтобы выйти в ноль, нужен поток ≈ <b>${fmt((r.flow - r.diffUsdt / ((r.convUsdt - r.saleUsdt) / r.flow)) / 1e6, 1)} млн ₽</b> в месяц</div>` : ''}
+    </div>
+    <div class="three">
+      <div class="cell"><span class="lab">Поток</span><b>${fmt(r.flow / 1e6, 2)} млн ₽</b><span class="rate">${fmt(r.perDay / 1e6, 2)} млн ₽ × ${r.days} дн.</span></div>
+      <div class="cell"><span class="lab">Себес</span><b class="cost">${usdt(r.costUsdt)}</b><span class="rate">курс ${fmt(r.costRate, 2)}</span></div>
+      <div class="cell"><span class="lab">Продажа клиентам</span><b class="sale">${usdt(r.saleUsdt)}</b><span class="rate">курс ${fmt(r.saleRate, 2)}</span></div>
+    </div>
+    <div class="card">
+      <div class="stitle">🇦🇪 Дубай</div>
+      ${line('Сконвертировано в Гонконге', usdt(r.convUsdt))}
+      ${line('Выдано клиентам', '− ' + usdt(r.saleUsdt))}
+      ${line('− Расходы Дубая за месяц', `${fmt(r.dubaiFixedUsd + r.dubaiLumpUsd)} USD`)}
+      ${line('Разница', `${sign(r.diffUsdt)} USDT`, 'tot ' + (r.diffUsdt < 0 ? 'bad' : 'good'))}
+    </div>
+    ${r.ooo.filter(o => o.kind !== 'nr').map(o => `<div class="card">
+      <div class="stitle">🇷🇺 ${esc(o.name)}</div>
+      ${line('Агентское вознаграждение', rub(o.agentRub))}
+      ${line('− НДС, банк, расходы, налог', rub(o.vatRub + o.bankRub + o.fixedRub + o.lumpRub + o.taxRub))}
+      ${line('Остаток ООО за месяц', rub(o.resultRub), 'tot ' + (o.resultRub < 0 ? 'bad' : ''))}
+    </div>`).join('')}
+    <div class="card">
+      <div class="stitle">Факт против плана</div>
+      ${line('Поток по факту', `${fmt(f.flow / 1e6, 2)} млн ₽ из ${fmt(r.flow / 1e6, 2)}`)}
+      <div class="bar big"><i style="width:${Math.min(100, done * 100)}%"></i></div>
+      ${line('Выполнено', `${fmt(done * 100, 1)}%`, 'tot')}
+      ${line('Разница по факту (за весь месяц расходов)', `${sign(f.diffUsdt)} USDT`)}
+    </div>`;
 }
 
 // ---------------- себестоимость и продажа ----------------

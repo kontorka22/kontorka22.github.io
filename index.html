@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
 <header class="top">
@@ -76,6 +76,17 @@
     <div id="repBody"></div>
   </section>
 
+  <!-- ПЛАН -->
+  <section id="tab-plan" class="tab">
+    <div class="datebar">
+      <button type="button" class="nav" id="plPrev">‹</button>
+      <div class="dlabel" id="plLabel"></div>
+      <button type="button" class="nav" id="plNext">›</button>
+    </div>
+    <div class="card" id="planIn"></div>
+    <div id="planOut"></div>
+  </section>
+
   <!-- СЕБЕСТОИМОСТЬ -->
   <section id="tab-cost" class="tab">
     <div class="card preview"><span class="muted small">Себестоимость сегодня</span><b class="cost" id="costPreview">—</b><span class="muted small" id="costPreviewNote"></span></div>
@@ -122,10 +133,11 @@
 <nav class="tabs">
   <button type="button" data-tab="day" class="active"><i>◉</i>День</button>
   <button type="button" data-tab="rep"><i>▤</i>Отчёт</button>
+  <button type="button" data-tab="plan"><i>◎</i>План</button>
   <button type="button" data-tab="cost"><i>↓</i>Себестоимость</button>
   <button type="button" data-tab="sale"><i>↑</i>Продажа</button>
 </nav>
 
-<script type="module" src="app.js?v=14"></script>
+<script type="module" src="app.js?v=15"></script>
 </body>
 </html>

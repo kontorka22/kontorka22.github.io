@@ -187,3 +187,6 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 .ask input { margin-bottom: 4px; font-size: 20px; }
 .askbtns { display: flex; gap: 8px; } .askbtns .btn { margin-top: 8px; }
 .btn.danger { background: var(--bad); color: #fff; }
+#planIn .qinput { margin-top: 12px; }
+.bar.big { height: 8px; border-radius: 4px; margin: 8px 0 4px; } .bar.big i { border-radius: 4px; background: var(--good); }
+.tabs button { font-size: 11px; }

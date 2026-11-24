@@ -156,3 +156,14 @@ test('наценка к курсу продажи: +1,5 ₽ к итоговом�
   near(r.saleRate - rate0, 1.5, 1e-9);
   near(rubForUsdt(clientQuote(1e6, 80, p), 80, p), 1e6, 1e-6);
 });
+
+test('план: месяц и день дают одинаковый прогноз; Дубай за полный месяц', async () => {
+  const { planForecast } = await import('../calc.js');
+  const p = structuredClone(DEFAULT_PARAMS);
+  p.dubai = [m('Номинал', 10000)];
+  const a = planForecast(p, '2026-12', { mode: 'month', amount: 3e8, days: 30, cb: 80 });
+  const b = planForecast(p, '2026-12', { mode: 'day', amount: 1e7, days: 30, cb: 80 });
+  near(a.flow, 3e8); near(b.flow, 3e8);
+  near(a.diffUsdt, b.diffUsdt, 1e-6);
+  near(a.convUsdt - a.costUsdt, 10000);
+});

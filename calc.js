@@ -248,3 +248,26 @@ export function periodReport(days, pIn, period) {
     series,
   };
 }
+
+// ---------------- план / прогноз ----------------
+
+/**
+ * Прогноз месяца. plan: { mode: 'month' | 'day', amount, days, cb }
+ *  - 'month': amount — поток за месяц, делится поровну на days рабочих дней;
+ *  - 'day':   amount — поток в день, умножается на days.
+ * Поток делится поровну между включёнными каналами (ООО / счёт).
+ */
+export function planForecast(pIn, ym, plan) {
+  const p = normalizeParams(pIn);
+  const days = Math.max(0, Math.min(daysInMonth(ym), Math.round(+plan.days || 0)));
+  const perDay = plan.mode === 'month' ? (days ? (+plan.amount || 0) / days : 0) : (+plan.amount || 0);
+  const act = activeOoo(p);
+  const ids = act.length ? act.map(o => o.id) : [0];
+  const synthetic = Array.from({ length: days }, (_, i) => ({
+    date: `${ym}-${String(i + 1).padStart(2, '0')}`,
+    cb: +plan.cb,
+    ops: ids.map(id => ({ amount: perDay / ids.length, ooo: id })),
+  }));
+  const r = periodReport(synthetic, p, { kind: 'month', months: [ym] });
+  return { ...r, perDay, days };
+}

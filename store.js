@@ -1,7 +1,7 @@
 // Хранилище: локально в телефоне (работает без сети) + синхронизация через Supabase,
 // чтобы у обоих был один журнал. Конфликты — побеждает более поздняя правка.
 
-import { DEFAULT_PARAMS, normalizeParams } from './calc.js?v=13';
+import { DEFAULT_PARAMS, normalizeParams } from './calc.js?v=15';
 
 const LS_DAYS = 'days-v1';
 const LS_PARAMS = 'params-v1';
