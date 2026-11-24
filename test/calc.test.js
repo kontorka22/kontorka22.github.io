@@ -95,6 +95,7 @@ test('надбавка к ЦБ в рублях; старый формат в % �
 
 test('продажа: своё агентское ООО и свой Дубай', () => {
   const p = structuredClone(DEFAULT_PARAMS);
+  p.sale.extraRub = 0;
   p.ooo[0].sale.agentPct = 0.02; p.sale.dubai = [m('Комиссия', 1000)];
   const r = calcDay([{ amount: 1e6, ooo: 1 }], 80, p, 1);
   near(r.units[0].sale.usdt, 1e6 * (1 - 0.02) * (1 - 0.025) / 81);
@@ -110,7 +111,7 @@ test('у каждого ООО свои проценты; старые общи�
   const r = calcDay([{ amount: 1e6, ooo: 1 }, { amount: 1e6, ooo: 2 }], 80, p, 0);
   near(r.units.find(u => u.id === 1).rf.agentRub, 15000);
   near(r.units.find(u => u.id === 2).rf.agentRub, 30000);
-  const old = { agentPct: 0.02, bankPct: 0.01, sale: { agentPct: 0.018, markupRub: 1, hkPct: 0.025, dubai: [] }, ooo: DEFAULT_PARAMS.ooo.map(({ agentPct, bankPct, vatPct, vatOnTop, profitTaxPct, sale, ...o }) => o) };
+  const old = { agentPct: 0.02, bankPct: 0.01, sale: { agentPct: 0.018, markupRub: 1, hkPct: 0.025, dubai: [], extraRub: 0 }, ooo: DEFAULT_PARAMS.ooo.map(({ agentPct, bankPct, vatPct, vatOnTop, profitTaxPct, sale, ...o }) => o) };
   const r2 = calcDay([{ amount: 1e6, ooo: 1 }], 80, old, 0);
   near(r2.units[0].rf.agentRub, 20000);
   near(r2.units[0].rf.bankRub, 10000);
@@ -119,7 +120,7 @@ test('у каждого ООО свои проценты; старые общи�
 
 test('нерезидентский счёт: только комиссия банка, дальше Гонконг и Дубай; Дубай делится и на него', () => {
   const p = structuredClone(DEFAULT_PARAMS);
-  p.nr.active = true; p.nr.bankPct = 0.01; p.nr.sale.bankPct = 0.015;
+  p.nr.active = true; p.nr.bankPct = 0.01; p.nr.sale.bankPct = 0.015; p.sale.extraRub = 0;
   p.dubai = [m('Номинал', 10000)];
   const r = calcDay([{ amount: 1e6, ooo: 4 }], 80, p, 1);
   const u = r.units.find(x => x.id === 4);
@@ -143,4 +144,15 @@ test('поступление через выключенный канал счи
   near(r.units[0].rf.bankRub, 30000);
   const rep = periodReport([{ date: '2026-11-24', ops: [{ amount: 2e6, ooo: 0 }], cb: 80, params: { old: true } }], p, { kind: 'day', date: '2026-11-24' });
   near(rep.ooo.find(o => o.id === 4).bankRub, 20000);
+});
+
+test('наценка к курсу продажи: +1,5 ₽ к итоговому курсу клиента', () => {
+  const p = structuredClone(DEFAULT_PARAMS);
+  const base = structuredClone(p); base.sale.extraRub = 0;
+  const rate0 = 1e6 / clientQuote(1e6, 80, base);
+  const rate1 = 1e6 / clientQuote(1e6, 80, p);
+  near(rate1 - rate0, 1.5, 1e-9);
+  const r = calcDay([{ amount: 1e6, ooo: 1 }], 80, p, 0);
+  near(r.saleRate - rate0, 1.5, 1e-9);
+  near(rubForUsdt(clientQuote(1e6, 80, p), 80, p), 1e6, 1e-6);
 });

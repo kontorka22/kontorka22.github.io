@@ -15,7 +15,7 @@ export const DEFAULT_PARAMS = {
   ooo: [mkOoo(1, true), mkOoo(2, false), mkOoo(3, false)],
   dubai: [],                                // Дубай (себестоимость): статьи, USD
   cost: { markupRub: 1, hkPct: 0.02 },      // Гонконг (себестоимость): курс ЦБ + 1 ₽, комиссия 2%
-  sale: { markupRub: 1, hkPct: 0.025, dubai: [] }, // продажа: Гонконг ЦБ + 1 ₽, 2,5%; свои статьи Дубая
+  sale: { markupRub: 1, hkPct: 0.025, dubai: [], extraRub: 1.5 }, // продажа: Гонконг ЦБ + 1 ₽, 2,5%; свои статьи Дубая; наценка +1,5 ₽ к итоговому курсу
   // нерезидентский счёт в Дубае — канал вместо ООО: только комиссия банка, дальше Гонконг и Дубай как обычно
   nr: { id: 4, kind: 'nr', name: 'Нерезидентский счёт (Дубай)', active: false, bankPct: 0, expenses: [], sale: { bankPct: 0 } },
 };
@@ -39,6 +39,7 @@ export function normalizeParams(p) {
   // продажа раньше была только «Гонконг» (+1,3 ₽) — надбавка по умолчанию теперь +1 ₽
   if (p?.sale && p.sale.agentPct == null && p.sale.dubai == null) out.sale = { ...structuredClone(DEFAULT_PARAMS.sale), hkPct: out.sale.hkPct };
   if (!Array.isArray(out.sale.dubai)) out.sale.dubai = [];
+  if (out.sale.extraRub == null) out.sale.extraRub = DEFAULT_PARAMS.sale.extraRub;
   for (const k of Object.keys(OOO_SALE)) delete out.sale[k];
   for (const k of ['expenses', 'payrollMonthRub', 'dubaiNominalUsdMonth', 'dubaiAccountingUsdMonth']) delete out[k];
   return out;
@@ -59,13 +60,19 @@ export function lumpsIn(items, ym) {
 const lumpSum = (items, ym) => lumpsIn(items, ym).reduce((s, e) => s + (+e.amount || 0), 0);
 
 /** Каналы приёма денег: три ООО + нерезидентский счёт. */
-export const channels = p => [...p.ooo, p.nr];
+export const channels = p => [...(p.ooo || []), p.nr].filter(Boolean);
 export const channel = (p, id) => channels(p).find(x => x.id === +id);
 export const activeOoo = p => channels(p).filter(o => o.active);
 
 /** Нерезидентский счёт: удерживается только комиссия банка. */
 const nrPart = (flow, o) => ({ agentRub: 0, vatRub: 0, retainedRub: flow * o.bankPct, revenueRub: 0, bankRub: flow * o.bankPct,
   fixedRub: 0, taxBaseRub: 0, taxRub: 0, resultRub: 0 });
+
+/** Наценка к итоговому курсу продажи: клиент платит на extraRub ₽ за 1 USDT больше. */
+function withExtra(rub, usdt, extraRub) {
+  if (!(usdt > 0) || !extraRub) return { usdt: usdt || 0 };
+  return { usdt: rub / (rub / usdt + extraRub) };
+}
 
 function hk(transitRub, cb, { markupRub, hkPct }) {
   const hkRub = transitRub * hkPct;
@@ -121,7 +128,8 @@ export function calcDay(ops, cb, pIn, share) {
     const transitRub = flow - (rf ? rf.retainedRub : 0);
     const cost = hk(transitRub, cb, p.cost);
     const saleKeep = !isOoo ? 0 : isNr ? flow * o.sale.bankPct : saleRetained(flow, o.sale);
-    const sale = hk(flow - saleKeep, cb, p.sale);
+    const saleHk = hk(flow - saleKeep, cb, p.sale);
+    const sale = { ...saleHk, usdt: withExtra(flow, saleHk.usdt, p.sale.extraRub).usdt };
     const getsDubai = (isOoo && o?.active) || (!isOoo && !act.length);
     const dubai = getsDubai ? dubaiPerUnit : 0;
     const saleDubai = getsDubai ? saleDubaiPerUnit : 0;
@@ -153,7 +161,7 @@ export function clientQuote(rub, cb, pIn, oooId = 1) {
   const p = normalizeParams(pIn);
   const o = oooId ? channel(p, oooId) : null;
   const keep = !o ? 0 : o.kind === 'nr' ? rub * o.sale.bankPct : saleRetained(rub, o.sale);
-  return hk(rub - keep, cb, p.sale).usdt;
+  return withExtra(rub, hk(rub - keep, cb, p.sale).usdt, p.sale.extraRub).usdt;
 }
 export function rubForUsdt(usdt, cb, pIn, oooId = 1) {
   const per = clientQuote(1, cb, pIn, oooId);

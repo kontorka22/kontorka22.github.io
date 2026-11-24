@@ -1,7 +1,7 @@
-import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel } from './calc.js';
-import { getUsdRate, todayMsk, addDays } from './cbr.js';
-import { SUPABASE } from './config.js';
-import * as store from './store.js';
+import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel } from './calc.js?v=13';
+import { getUsdRate, todayMsk, addDays } from './cbr.js?v=13';
+import { SUPABASE } from './config.js?v=13';
+import * as store from './store.js?v=13';
 
 const $ = s => document.querySelector(s);
 const nf = d => new Intl.NumberFormat('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -366,6 +366,11 @@ function renderSale() {
       <h3>🇭🇰 Гонконг</h3>
       ${fieldHtml('sale.markupRub', 'Надбавка к курсу ЦБ', 'rub', p)}
       ${fieldHtml('sale.hkPct', 'Комиссия ГК', '%', p)}
+    </div>
+    <div class="card">
+      <h3>➕ Наценка</h3>
+      ${fieldHtml('sale.extraRub', 'К итоговому курсу продажи', 'rub', p)}
+      <div class="muted small">Прибавляется к курсу клиента после ООО, Дубая и Гонконга.</div>
     </div>
     <p class="muted small pad">Любое изменение сразу пересчитывает все дни и отчёты. Курс ЦБ у каждого дня свой — на его дату.</p>`;
   updatePreviews();

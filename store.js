@@ -1,7 +1,7 @@
 // Хранилище: локально в телефоне (работает без сети) + синхронизация через Supabase,
 // чтобы у обоих был один журнал. Конфликты — побеждает более поздняя правка.
 
-import { DEFAULT_PARAMS, normalizeParams } from './calc.js';
+import { DEFAULT_PARAMS, normalizeParams } from './calc.js?v=13';
 
 const LS_DAYS = 'days-v1';
 const LS_PARAMS = 'params-v1';
@@ -41,7 +41,7 @@ let params = normalizeParams(load(LS_PARAMS, {}).data);
 let paramsMeta = load(LS_PARAMS, { updatedAt: '1970-01-01T00:00:00Z' });
 export const getParams = () => structuredClone(params);
 export function setParams(p) {
-  params = structuredClone(p);
+  params = normalizeParams(p);
   paramsMeta = { data: params, updatedAt: new Date().toISOString(), dirty: true };
   put(LS_PARAMS, paramsMeta);
   scheduleSync();
