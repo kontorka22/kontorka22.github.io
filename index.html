@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0e1116">
+<meta name="theme-color" content="#0b0e13">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -12,12 +12,12 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 <header class="top">
   <h1 id="title">День</h1>
-  <button id="sync" class="sync" type="button"><span class="dot"></span><span id="syncText">локально</span></button>
+  <button id="sync" class="sync" type="button"><span class="dot"></span><span id="syncText">не подключено</span></button>
 </header>
 
 <main>
@@ -28,89 +28,98 @@
       <label class="dlabel"><span id="dLabel"></span><input id="date" type="date"></label>
       <button type="button" class="nav" id="dNext" aria-label="Следующий день">›</button>
     </div>
-    <button type="button" id="cbPill" class="cbpill"><span id="cbValue">ЦБ —</span><span id="cbNote" class="muted"></span></button>
 
-    <!-- котировка + ввод поступления -->
+    <button type="button" id="cbCard" class="card cbcard">
+      <span class="cbtitle">Курс ЦБ, ₽ за 1 USD</span>
+      <span class="cbbig" id="cbValue">—</span>
+      <span class="cbnote" id="cbNote"></span>
+    </button>
+
     <div class="card quote">
       <div class="qhead">
-        <span class="muted small" id="qLabel">Клиент платит</span>
-        <button type="button" id="qSwap" class="swap">₽ ⇄ ₮</button>
+        <span class="muted small" id="qLabel">Клиент платит, ₽</span>
+        <button type="button" id="qSwap" class="swap">₽ ⇄ USDT</button>
       </div>
       <div class="qinput"><input id="qIn" inputmode="decimal" placeholder="0" autocomplete="off"><span id="qCur">₽</span></div>
-      <div class="qout"><span id="qOut">—</span></div>
+      <div class="qout" id="qOut"></div>
       <div class="muted small" id="qRate"></div>
+      <div id="oooPick" class="seg"></div>
       <button type="button" id="qAdd" class="btn" disabled>+ В поток дня</button>
     </div>
 
-    <!-- итог дня -->
-    <div class="card sum">
-      <div class="sumtop">
-        <div><div class="muted small">Поток за день</div><div class="big" id="sFlow">0 ₽</div><div class="muted small" id="sOps"></div></div>
-        <div class="right"><div class="muted small">Прибыль</div><div class="big good" id="sProfit">0 ₮</div><div class="muted small" id="sProfitPct"></div></div>
-      </div>
-      <div class="rates">
-        <div><span class="muted small">Себес</span><b class="cost" id="sCost">—</b></div>
-        <div><span class="muted small">Продажа</span><b class="sale" id="sSale">—</b></div>
-        <div><span class="muted small">Клиентам</span><b id="sClient">—</b></div>
+    <div class="card">
+      <div class="muted small">Поток за день</div>
+      <div class="flowbig" id="sFlow">0 ₽</div>
+      <div class="muted small" id="sOps"></div>
+      <div class="three">
+        <div class="cell"><span class="lab">Себес</span><b class="cost" id="sCostSum">—</b><span class="rate" id="sCostRate"></span></div>
+        <div class="cell"><span class="lab">Продажа клиентам</span><b class="sale" id="sSaleSum">—</b><span class="rate" id="sSaleRate"></span></div>
+        <div class="cell diff"><span class="lab">Разница</span><b id="sDiffSum">—</b><span class="rate" id="sDiffRate"></span></div>
       </div>
     </div>
 
     <div id="ops"></div>
-
-    <details class="card" id="chainBox">
-      <summary>Куда уходят деньги</summary>
-      <div id="chain"></div>
-    </details>
   </section>
 
-  <!-- МЕСЯЦ -->
-  <section id="tab-month" class="tab">
-    <div class="datebar">
-      <button type="button" class="nav" id="mPrev">‹</button>
-      <div class="dlabel" id="mLabel"></div>
-      <button type="button" class="nav" id="mNext">›</button>
+  <!-- ОТЧЁТ -->
+  <section id="tab-rep" class="tab">
+    <div class="seg big" id="repKind">
+      <button type="button" data-k="day">День</button>
+      <button type="button" data-k="month" class="on">Месяц</button>
+      <button type="button" data-k="year">Год</button>
     </div>
-    <div id="monthBody"></div>
+    <div class="datebar">
+      <button type="button" class="nav" id="rPrev">‹</button>
+      <div class="dlabel" id="rLabel"></div>
+      <button type="button" class="nav" id="rNext">›</button>
+    </div>
+    <div id="repBody"></div>
   </section>
 
   <!-- РАСХОДЫ -->
-  <section id="tab-exp" class="tab">
-    <p class="muted small pad">Ежемесячные статьи входят в себес каждого дня (делятся на дни месяца).
-      Годовые и разовые — в отчёт месяца, в котором они случаются. Меняется сразу у обоих.</p>
-    <div id="expBody"></div>
+  <section id="tab-exp" class="tab"><div id="expBody"></div></section>
+
+  <!-- СЕБЕСТОИМОСТЬ -->
+  <section id="tab-cost" class="tab">
+    <div class="card preview"><span class="muted small">Себестоимость сегодня</span><b class="cost" id="costPreview">—</b><span class="muted small" id="costPreviewNote"></span></div>
+    <form id="costForm" class="card"></form>
   </section>
 
-  <!-- ЕЩЁ -->
-  <section id="tab-set" class="tab">
-    <form id="paramsForm" class="card"></form>
-    <div class="card">
-      <h3>Общий журнал на двоих</h3>
-      <div id="syncLogged" class="hidden">
-        <p class="muted small">Вы вошли как <b id="syncEmail"></b></p>
-        <button type="button" id="syncNowBtn" class="btn sec">Синхронизировать сейчас</button>
-        <button type="button" id="logoutBtn" class="link">выйти</button>
-      </div>
-      <form id="loginForm">
-        <div id="cfgFields">
-          <label class="lbl">Адрес базы (Supabase URL)<input name="url" placeholder="https://xxxx.supabase.co" autocomplete="off"></label>
-          <label class="lbl">Ключ (anon key)<input name="key" autocomplete="off"></label>
-        </div>
-        <label class="lbl">Email<input name="email" type="email" autocomplete="username"></label>
-        <label class="lbl">Пароль<input name="password" type="password" autocomplete="current-password"></label>
-        <button class="btn sec">Войти</button>
-        <div id="loginErr" class="err small"></div>
-      </form>
-    </div>
+  <!-- ПРОДАЖА -->
+  <section id="tab-sale" class="tab">
+    <div class="card preview"><span class="muted small">Курс продажи сегодня</span><b class="sale" id="salePreview">—</b><span class="muted small" id="salePreviewNote"></span></div>
+    <form id="saleForm" class="card"></form>
   </section>
 </main>
 
+<!-- вход в общий журнал -->
+<dialog id="syncDlg">
+  <div class="dlghead"><h3>Общий журнал на двоих</h3><button type="button" class="x" id="syncClose">×</button></div>
+  <div id="syncLogged" class="hidden">
+    <p class="muted small">Вы вошли как <b id="syncEmail"></b></p>
+    <button type="button" id="syncNowBtn" class="btn sec">Синхронизировать сейчас</button>
+    <button type="button" id="logoutBtn" class="link">выйти</button>
+  </div>
+  <form id="loginForm">
+    <div id="cfgFields">
+      <label class="lbl">Адрес базы (Supabase URL)<input name="url" placeholder="https://xxxx.supabase.co" autocomplete="off"></label>
+      <label class="lbl">Ключ (anon key)<input name="key" autocomplete="off"></label>
+    </div>
+    <label class="lbl">Email<input name="email" type="email" autocomplete="username"></label>
+    <label class="lbl">Пароль<input name="password" type="password" autocomplete="current-password"></label>
+    <button class="btn sec">Войти</button>
+    <div id="loginErr" class="err small"></div>
+  </form>
+</dialog>
+
 <nav class="tabs">
   <button type="button" data-tab="day" class="active"><i>◉</i>День</button>
-  <button type="button" data-tab="month"><i>▤</i>Месяц</button>
+  <button type="button" data-tab="rep"><i>▤</i>Отчёт</button>
   <button type="button" data-tab="exp"><i>≡</i>Расходы</button>
-  <button type="button" data-tab="set"><i>⚙</i>Ещё</button>
+  <button type="button" data-tab="cost"><i>↓</i>Себестоимость</button>
+  <button type="button" data-tab="sale"><i>↑</i>Продажа</button>
 </nav>
 
-<script type="module" src="app.js?v=4"></script>
+<script type="module" src="app.js?v=6"></script>
 </body>
 </html>

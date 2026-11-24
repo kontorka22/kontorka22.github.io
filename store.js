@@ -15,7 +15,7 @@ const put = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 let days = load(LS_DAYS, {});
 const persistDays = () => put(LS_DAYS, days);
 
-export const listDays = () => Object.values(days).filter(d => !d.deleted).sort((a, b) => b.date.localeCompare(a.date));
+export const listDays = () => Object.keys(days).map(getDay).filter(Boolean).sort((a, b) => b.date.localeCompare(a.date));
 export const getDay = date => {
   const d = days[date];
   if (!d || d.deleted) return null;

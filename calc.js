@@ -1,151 +1,198 @@
 // Расчёт потока РФ → Гонконг → Дубай по структуре финмодели (лист «Модель Рост»).
-
-// Расходы — статьями. level: 'ru' (ООО, ₽) | 'ae' (Дубай + Гонконг, $)
-// period: 'month' — каждый месяц; 'year' — раз в год в месяце `from`; 'once' — один раз в месяце `from`.
-export const DEFAULT_EXPENSES = [
-  // в таблице одной строкой «ФОТ и налоги на ЗП» = 350 000 — взносы заполнить отдельно
-  { id: 'ru-payroll', level: 'ru', name: 'ФОТ (зарплаты)', amount: 350000, period: 'month' },
-  { id: 'ru-payroll-tax', level: 'ru', name: 'Страховые взносы', amount: 0, period: 'month' },
-  { id: 'ru-ndfl', level: 'ru', name: 'НДФЛ', amount: 0, period: 'month' },
-  { id: 'ru-capital', level: 'ru', name: 'Уставный капитал', amount: 10000, period: 'once', from: '2026-11' },
-  { id: 'ru-kkt', level: 'ru', name: 'Контрольно-кассовая техника', amount: 50000, period: 'year', from: '2026-11' },
-  { id: 'ru-1c', level: 'ru', name: 'Программа 1С', amount: 40000, period: 'year', from: '2026-11' },
-  { id: 'ru-address', level: 'ru', name: 'Юридический адрес', amount: 15000, period: 'year', from: '2026-11' },
-  { id: 'ru-reserve', level: 'ru', name: 'Непредвиденные расходы', amount: 50000, period: 'year', from: '2026-11' },
-  { id: 'ae-nominal', level: 'ae', name: 'Номинал', amount: 5000, period: 'month' },
-  { id: 'ae-accounting', level: 'ae', name: 'Бух, аудит, резерв на продление лицензии', amount: 5000, period: 'month' },
-  { id: 'ae-license', level: 'ae', name: 'Лицензия', amount: 12000, period: 'year', from: '2026-11' },
-  { id: 'ae-accounts', level: 'ae', name: 'Счета', amount: 36018, period: 'once', from: '2026-11' },
-];
+//
+// Дубай работает всегда. ООО (до трёх) — опционально, каждое включается галочкой.
+// Расходы Дубая делятся поровну между включёнными ООО. Если ни одно ООО не включено,
+// поток идёт напрямую в Гонконг (без агентского, НДС, банка и налогов РФ).
+//
+// Статья расходов: { id, name, amount, period: 'month' | 'year' | 'once', from: 'YYYY-MM' }
 
 export const DEFAULT_PARAMS = {
-  agentPct: 0.015,        // агентское вознаграждение ООО, % от потока
+  // ООО (одинаково для всех ООО)
+  agentPct: 0.015,        // агентское вознаграждение, % от потока
   vatPct: 0.22,           // НДС
   vatOnTop: false,        // false — НДС внутри вознаграждения (22/122)
   bankPct: 0.005,         // комиссия банка РФ, % от потока
   profitTaxPct: 0.25,     // налог на прибыль
-  cost: { markupPct: 0.01, hkPct: 0.02 },   // себес: ЦБ +1%, комиссия ГК 2%
+  // Гонконг
+  cost: { markupPct: 0.01, hkPct: 0.02 },   // себестоимость: ЦБ +1%, комиссия ГК 2%
   sale: { markupPct: 0.013, hkPct: 0.025 }, // продажа: ЦБ +1,3%, комиссия ГК 2,5%
-  expenses: DEFAULT_EXPENSES,
+  // Расходы
+  dubai: [],
+  ooo: [
+    { id: 1, name: 'ООО 1', active: true, expenses: [] },
+    { id: 2, name: 'ООО 2', active: false, expenses: [] },
+    { id: 3, name: 'ООО 3', active: false, expenses: [] },
+  ],
 };
 
-/** Параметры старого формата → новый (на случай сохранённых ранее дней). */
 export function normalizeParams(p) {
   const out = { ...structuredClone(DEFAULT_PARAMS), ...structuredClone(p || {}) };
-  if (!p?.expenses) {
-    const ex = structuredClone(DEFAULT_EXPENSES);
-    if (p?.payrollMonthRub != null) {
-      for (const e of ex) if (e.level === 'ru' && e.period === 'month') e.amount = 0;
-      ex.find(e => e.id === 'ru-payroll').amount = p.payrollMonthRub;
-    }
-    out.expenses = ex;
-  }
-  delete out.payrollMonthRub; delete out.dubaiNominalUsdMonth; delete out.dubaiAccountingUsdMonth;
+  if (!Array.isArray(out.dubai)) out.dubai = [];
+  if (!Array.isArray(out.ooo) || out.ooo.length !== 3) out.ooo = structuredClone(DEFAULT_PARAMS.ooo);
+  for (const k of ['expenses', 'payrollMonthRub', 'dubaiNominalUsdMonth', 'dubaiAccountingUsdMonth']) delete out[k];
   return out;
 }
 
 export const daysInMonth = ym => { const [y, m] = ym.split('-').map(Number); return new Date(y, m, 0).getDate(); };
 export const dayShareOfMonth = isoDate => 1 / daysInMonth(isoDate.slice(0, 7));
+export const monthlySum = items => items.filter(e => e.period === 'month').reduce((s, e) => s + (+e.amount || 0), 0);
 
-const monthlySum = (p, level) => p.expenses.filter(e => e.level === level && e.period === 'month').reduce((s, e) => s + (+e.amount || 0), 0);
-
-/** Разовые и годовые статьи, которые приходятся на месяц ym. */
-export function lumpExpenses(p, ym) {
-  return p.expenses.filter(e => {
+/** Годовые и разовые статьи, которые приходятся на месяц ym. */
+export function lumpsIn(items, ym) {
+  return items.filter(e => {
     if (!e.from || e.period === 'month') return false;
     if (e.period === 'once') return e.from === ym;
-    return e.from <= ym && e.from.slice(5) === ym.slice(5); // год: тот же месяц каждый год
+    return e.from <= ym && e.from.slice(5) === ym.slice(5);
   });
 }
+const lumpSum = (items, ym) => lumpsIn(items, ym).reduce((s, e) => s + (+e.amount || 0), 0);
 
-function path(transitRub, cb, { markupPct, hkPct }) {
+export const activeOoo = p => p.ooo.filter(o => o.active);
+
+function hk(transitRub, cb, { markupPct, hkPct }) {
   const hkRub = transitRub * hkPct;
-  const beforeConvRub = transitRub - hkRub;
   const convRate = cb * (1 + markupPct);
-  return { markupPct, hkPct, hkRub, beforeConvRub, convRate, usdt: convRate > 0 ? beforeConvRub / convRate : 0 };
+  return { hkRub, convRate, usdt: convRate > 0 ? (transitRub - hkRub) / convRate : 0 };
 }
 
-/**
- * Один операционный день. Ежемесячные статьи ложатся на день долей share (1/дней в месяце);
- * share = 1 — расчёт на целый месяц, как в таблице.
- */
-export function calcDay(flow, cb, pIn, share) {
-  const p = normalizeParams(pIn);
-  // РФ — ООО
+/** ООО: что удерживается из потока и что остаётся у ООО. fixedRub — расходы ООО за период. */
+function oooPart(flow, p, fixedRub) {
   const agentRub = flow * p.agentPct;
   const vatRub = p.vatOnTop ? agentRub * p.vatPct : (agentRub * p.vatPct) / (1 + p.vatPct);
   const retainedRub = agentRub + (p.vatOnTop ? vatRub : 0);
-  const oooRevenueRub = p.vatOnTop ? agentRub : agentRub - vatRub;
+  const revenueRub = p.vatOnTop ? agentRub : agentRub - vatRub;
   const bankRub = flow * p.bankPct;
-  const ruFixedRub = monthlySum(p, 'ru') * share;
-  const taxBaseRub = Math.max(0, oooRevenueRub - bankRub - ruFixedRub);
-  const profitTaxRub = taxBaseRub * p.profitTaxPct;
-  const oooResultRub = oooRevenueRub - bankRub - ruFixedRub - profitTaxRub; // «Сверка»
-
-  // Гонконг
-  const transitRub = flow - retainedRub;
-  const cost = path(transitRub, cb, p.cost);
-  const sale = path(transitRub, cb, p.sale);
-
-  // Дубай — постоянные расходы только в себесе
-  const aeFixedUsd = monthlySum(p, 'ae') * share;
-  const distributableUsdt = cost.usdt - aeFixedUsd;
-  const clientUsdt = sale.usdt;
-  const costRate = distributableUsdt > 0 ? flow / distributableUsdt : 0;
-  const saleRate = clientUsdt > 0 ? flow / clientUsdt : 0;
-  const profitUsdt = distributableUsdt - clientUsdt;
-
-  return {
-    flow, cb, share,
-    agentRub, vatRub, retainedRub, oooRevenueRub, bankRub, ruFixedRub, taxBaseRub, profitTaxRub, oooResultRub,
-    transitRub, cost, sale, aeFixedUsd, distributableUsdt, clientUsdt, costRate, saleRate, profitUsdt,
-    marginUsdt: cost.usdt - clientUsdt,
-    profitPct: flow > 0 && cb > 0 ? profitUsdt / (flow / cb) : 0,
-  };
-}
-
-/** Сколько USDT получит клиент за сумму в рублях (и обратно) — по курсу продажи. */
-export function clientQuote(rub, cb, pIn) {
-  const p = normalizeParams(pIn);
-  const transit = rub * (1 - p.agentPct * (p.vatOnTop ? 1 + p.vatPct : 1));
-  return path(transit, cb, p.sale).usdt;
-}
-export function rubForUsdt(usdt, cb, pIn) {
-  const per = clientQuote(1, cb, pIn);
-  return per > 0 ? usdt / per : 0;
+  const taxBaseRub = Math.max(0, revenueRub - bankRub - fixedRub);
+  const taxRub = taxBaseRub * p.profitTaxPct;
+  return { agentRub, vatRub, retainedRub, revenueRub, bankRub, fixedRub, taxBaseRub, taxRub,
+    resultRub: revenueRub - bankRub - fixedRub - taxRub };
 }
 
 /**
- * Месяц целиком: переменная маржа по дням + постоянные расходы за полный месяц + разовые/годовые статьи.
- * days: [{date, flow, cb, params}], p — текущие параметры (статьи расходов месяца).
+ * Один день. ops: [{ amount, ooo }] — ooo: 1..3 или 0 (без ООО).
+ * share — доля месяца для ежемесячных расходов (1/дней в месяце; 1 = целый месяц, как в таблице).
  */
-export function monthReport(days, pIn, ym) {
+export function calcDay(ops, cb, pIn, share) {
   const p = normalizeParams(pIn);
-  const rs = days.map(d => ({ d, r: calcDay(d.flow, d.cb, d.params, dayShareOfMonth(d.date)) }));
-  const sum = k => rs.reduce((s, x) => s + x.r[k], 0);
-  const flow = sum('flow');
-  const avgCb = flow > 0 ? flow / rs.reduce((s, x) => s + x.r.flow / x.r.cb, 0) : 0;
+  const act = activeOoo(p);
+  const dubaiUsd = monthlySum(p.dubai) * share;
+  const dubaiPerUnit = dubaiUsd / Math.max(1, act.length);
 
-  const marginUsdt = sum('marginUsdt');           // себес-конвертация − выдача клиенту (до расходов Дубая)
-  const aeFixedUsd = monthlySum(p, 'ae');
-  const ruFixedRub = monthlySum(p, 'ru');
-  const lumps = lumpExpenses(p, ym);
-  const aeLumpUsd = lumps.filter(e => e.level === 'ae').reduce((s, e) => s + +e.amount, 0);
-  const ruLumpRub = lumps.filter(e => e.level === 'ru').reduce((s, e) => s + +e.amount, 0);
+  // группы: каждое ООО (включённое или с поступлениями) + «без ООО»
+  const flowBy = {};
+  for (const o of ops) { const k = act.length ? (o.ooo || act[0].id) : 0; flowBy[k] = (flowBy[k] || 0) + (+o.amount || 0); }
+  const keys = new Set([...act.map(o => o.id), ...Object.keys(flowBy).map(Number)]);
 
-  const oooRevenueRub = sum('oooRevenueRub'), bankRub = sum('bankRub');
-  const taxBaseRub = Math.max(0, oooRevenueRub - bankRub - ruFixedRub);
-  const profitTaxRub = taxBaseRub * p.profitTaxPct;
-  const oooResultRub = oooRevenueRub - bankRub - ruFixedRub - profitTaxRub - ruLumpRub;
+  const units = [...keys].sort().map(id => {
+    const o = p.ooo.find(x => x.id === id);
+    const flow = flowBy[id] || 0;
+    const isOoo = id !== 0;
+    const fixed = isOoo && o?.active ? monthlySum(o.expenses) * share : 0;
+    const rf = isOoo ? oooPart(flow, p, fixed) : null;
+    const transitRub = flow - (rf ? rf.retainedRub : 0);
+    const cost = hk(transitRub, cb, p.cost);
+    const sale = hk(transitRub, cb, p.sale);
+    const dubai = (isOoo && o?.active) || (!isOoo && !act.length) ? dubaiPerUnit : 0;
+    const costUsdt = cost.usdt - dubai;
+    return { id, name: isOoo ? o?.name || `ООО ${id}` : 'Без ООО', flow, rf, transitRub, cost, sale, dubaiUsd: dubai,
+      costUsdt, saleUsdt: sale.usdt, diffUsdt: costUsdt - sale.usdt,
+      costRate: costUsdt > 0 ? flow / costUsdt : 0, saleRate: sale.usdt > 0 ? flow / sale.usdt : 0 };
+  });
 
-  const netUsdt = marginUsdt - aeFixedUsd - aeLumpUsd;
+  const sum = f => units.reduce((s, u) => s + f(u), 0);
+  const flow = sum(u => u.flow);
+  const costUsdt = sum(u => u.costUsdt), saleUsdt = sum(u => u.saleUsdt);
   return {
-    days: rs, count: rs.length, flow, avgCb,
-    clientUsdt: sum('clientUsdt'), convUsdt: rs.reduce((s, x) => s + x.r.cost.usdt, 0),
-    saleRate: sum('clientUsdt') > 0 ? flow / sum('clientUsdt') : 0,
-    costRate: sum('distributableUsdt') > 0 ? flow / sum('distributableUsdt') : 0,
-    marginUsdt, aeFixedUsd, aeLumpUsd, netUsdt, lumps,
-    agentRub: sum('agentRub'), vatRub: sum('vatRub'), oooRevenueRub, bankRub, ruFixedRub, ruLumpRub,
-    taxBaseRub, profitTaxRub, oooResultRub,
+    flow, cb, share, units, dubaiUsd,
+    convUsdt: sum(u => u.cost.usdt),
+    costUsdt, saleUsdt, diffUsdt: costUsdt - saleUsdt,
+    costRate: costUsdt > 0 ? flow / costUsdt : 0,
+    saleRate: saleUsdt > 0 ? flow / saleUsdt : 0,
+    oooResultRub: sum(u => u.rf?.resultRub || 0),
+  };
+}
+
+/** Сколько USDT получит клиент за рубли по курсу продажи (через ООО или напрямую) и обратно. */
+export function clientQuote(rub, cb, pIn, viaOoo = true) {
+  const p = normalizeParams(pIn);
+  const transit = viaOoo ? rub * (1 - p.agentPct * (p.vatOnTop ? 1 + p.vatPct : 1)) : rub;
+  return hk(transit, cb, p.sale).usdt;
+}
+export function rubForUsdt(usdt, cb, pIn, viaOoo = true) {
+  const per = clientQuote(1, cb, pIn, viaOoo);
+  return per > 0 ? usdt / per : 0;
+}
+
+// ---------------- отчёты за период ----------------
+
+const pad = n => String(n).padStart(2, '0');
+/** Месяцы года, которые уже наступили (для текущего года — по текущий месяц включительно). */
+export function monthsOfYear(year, todayYm) {
+  const all = Array.from({ length: 12 }, (_, i) => `${year}-${pad(i + 1)}`);
+  return all.filter(m => m <= todayYm);
+}
+
+/**
+ * Отчёт за набор месяцев (месяц или год) или за один день.
+ * days: [{ date, ops, cb, params }] — у каждого дня свой снимок процентов и курса.
+ * p — текущие параметры: статьи расходов и какие ООО включены.
+ */
+export function periodReport(days, pIn, period) {
+  const p = normalizeParams(pIn);
+  const act = activeOoo(p);
+  const isDay = period.kind === 'day';
+  const months = isDay ? [period.date.slice(0, 7)] : period.months;
+  const share = isDay ? dayShareOfMonth(period.date) : 1;
+
+  // переменная часть — по дням, без постоянных расходов
+  const rows = days.map(d => ({ d, r: calcDay(d.ops, d.cb, d.params, 0) }));
+  const flow = rows.reduce((s, x) => s + x.r.flow, 0);
+  const convUsdt = rows.reduce((s, x) => s + x.r.convUsdt, 0);
+  const saleUsdt = rows.reduce((s, x) => s + x.r.saleUsdt, 0);
+
+  // Дубай
+  const dubaiFixedUsd = months.length * monthlySum(p.dubai) * share;
+  const dubaiLumps = isDay ? [] : months.flatMap(m => lumpsIn(p.dubai, m));
+  const dubaiLumpUsd = dubaiLumps.reduce((s, e) => s + +e.amount, 0);
+  const costUsdt = convUsdt - dubaiFixedUsd - dubaiLumpUsd;
+
+  // ООО — налог считается по каждому ООО помесячно
+  const ooo = [...new Set([...act.map(o => o.id), ...rows.flatMap(x => x.r.units.filter(u => u.id && u.flow).map(u => u.id))])].sort().map(id => {
+    const o = p.ooo.find(x => x.id === id);
+    const t = { id, name: o.name, active: o.active, flow: 0, agentRub: 0, vatRub: 0, revenueRub: 0, bankRub: 0, fixedRub: 0, lumpRub: 0, taxRub: 0, resultRub: 0, lumps: [] };
+    for (const m of months) {
+      const us = rows.filter(x => x.d.date.startsWith(m)).map(x => x.r.units.find(u => u.id === id)).filter(Boolean);
+      const s = k => us.reduce((a, u) => a + (u.rf?.[k] || 0), 0);
+      const fixed = o.active ? monthlySum(o.expenses) * share : 0;
+      const lumps = o.active && !isDay ? lumpsIn(o.expenses, m) : [];
+      const lump = lumps.reduce((a, e) => a + +e.amount, 0);
+      const rev = s('revenueRub'), bank = s('bankRub');
+      const tax = Math.max(0, rev - bank - fixed - lump) * p.profitTaxPct;
+      t.flow += us.reduce((a, u) => a + u.flow, 0);
+      t.agentRub += s('agentRub'); t.vatRub += s('vatRub'); t.revenueRub += rev; t.bankRub += bank;
+      t.fixedRub += fixed; t.lumpRub += lump; t.taxRub += tax; t.lumps.push(...lumps);
+      t.resultRub += rev - bank - fixed - lump - tax;
+    }
+    return t;
+  });
+
+  // разбивка для графика: по дням месяца или по месяцам года
+  const series = period.kind === 'year'
+    ? months.map(m => {
+      const rs = rows.filter(x => x.d.date.startsWith(m));
+      const v = rs.reduce((s, x) => s + x.r.convUsdt - x.r.saleUsdt, 0) - monthlySum(p.dubai) - lumpSum(p.dubai, m);
+      return { key: m, value: v };
+    })
+    : rows.map(x => ({ key: x.d.date, value: x.r.convUsdt - x.r.saleUsdt }));
+
+  return {
+    flow, count: rows.filter(x => x.r.flow > 0).length,
+    convUsdt, saleUsdt, dubaiFixedUsd, dubaiLumpUsd, dubaiLumps, costUsdt,
+    diffUsdt: costUsdt - saleUsdt,
+    costRate: costUsdt > 0 ? flow / costUsdt : 0,
+    saleRate: saleUsdt > 0 ? flow / saleUsdt : 0,
+    avgCb: flow > 0 ? flow / rows.reduce((s, x) => s + x.r.flow / x.r.cb, 0) : 0,
+    ooo, oooResultRub: ooo.reduce((s, o) => s + o.resultRub, 0),
+    series,
   };
 }
