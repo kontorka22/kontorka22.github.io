@@ -1,4 +1,4 @@
-import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo } from './calc.js';
+import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel } from './calc.js';
 import { getUsdRate, todayMsk, addDays } from './cbr.js';
 import { SUPABASE } from './config.js';
 import * as store from './store.js';
@@ -84,7 +84,7 @@ function renderOooPick() {
   if (!act.find(o => o.id === st.ooo)) st.ooo = act[0]?.id ?? 0;
   $('#oooPick').innerHTML = act.length > 1
     ? `<span class="muted small">Поступает на</span>${act.map(o => `<button type="button" data-ooo="${o.id}" class="${o.id === st.ooo ? 'on' : ''}">${esc(o.name)}</button>`).join('')}`
-    : act.length === 0 ? '<span class="muted small">ООО выключены — поток идёт напрямую в Гонконг</span>' : '';
+    : act.length === 0 ? '<span class="muted small">Все ООО и счёт выключены — поток идёт напрямую в Гонконг</span>' : '';
   document.querySelectorAll('[data-ooo]').forEach(b => b.addEventListener('click', () => { st.ooo = +b.dataset.ooo; renderOooPick(); renderQuote(); }));
 }
 
@@ -124,10 +124,10 @@ function renderDay() {
   $('#sDiffSum').className = r && r.diffUsdt < 0 ? 'bad' : 'good';
   $('#sDiffRate').textContent = r ? `курс ${sign(r.saleRate - r.costRate, 2)} · ≈ ${rub(r.diffUsdt * cb)}` : '';
 
-  const many = p.ooo.filter(o => o.active).length > 1;
+  const many = activeOoo(p).length > 1;
   $('#ops').innerHTML = ops.length ? `<div class="card ops"><div class="muted small">Поступления</div>${[...ops].reverse().map(o => `
-    <div class="op"><div><b>${rub(o.amount)}</b> <span class="muted small">→ ${usdt(clientQuote(o.amount, cb, p, o.ooo ?? (p.ooo.find(x => x.active)?.id || 1)), 2)}</span>
-      <div class="muted small">${o.at ? new Date(o.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''}${many && o.ooo ? ' · ' + esc(p.ooo.find(x => x.id === o.ooo)?.name || '') : ''}${o.by ? ' · ' + esc(o.by) : ''}</div></div>
+    <div class="op"><div><b>${rub(o.amount)}</b> <span class="muted small">→ ${usdt(clientQuote(o.amount, cb, p, o.ooo ?? (activeOoo(p)[0]?.id || 1)), 2)}</span>
+      <div class="muted small">${o.at ? new Date(o.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''}${many && o.ooo ? ' · ' + esc(channel(p, o.ooo)?.name || '') : ''}${o.by ? ' · ' + esc(o.by) : ''}</div></div>
       <button type="button" class="x" data-op="${o.id}" aria-label="Удалить">×</button></div>`).join('')}</div>` : '';
   document.querySelectorAll('[data-op]').forEach(b => b.addEventListener('click', () => removeOp(b.dataset.op)));
 }
@@ -247,9 +247,13 @@ function renderReport() {
       ${dubaiMonthly.map(e => line(`− ${esc(e.name)}${rep.kind === 'day' ? ' (доля за день)' : ''}`, usd(e.amount * mult))).join('')}
       ${r.dubaiLumps.map(e => line(`− ${esc(e.name)} ${tag(e)}`, usd(+e.amount))).join('')}
       ${line('Разница', `${sign(r.diffUsdt)} USDT`, 'tot ' + (r.diffUsdt < 0 ? 'bad' : 'good'))}
-      ${n > 1 ? `<div class="muted small">Расходы Дубая делятся на ${n} ООО</div>` : ''}
+      ${n > 1 ? `<div class="muted small">Расходы Дубая делятся на ${n} канала (ООО и счёт)</div>` : ''}
     </div>
-    ${r.ooo.map(o => `<div class="card">
+    ${r.ooo.map(o => o.kind === 'nr' ? `<div class="card">
+      <div class="stitle">🏦 ${esc(o.name)}${o.active ? '' : ' <span class="tag">выключен</span>'}</div>
+      ${line('Поток через счёт', rub(o.flow))}
+      ${line('− Комиссия банка', rub(o.bankRub))}
+    </div>` : `<div class="card">
       <div class="stitle">🇷🇺 ${esc(o.name)}${o.active ? '' : ' <span class="tag">выключено</span>'}</div>
       ${line('Поток через ООО', rub(o.flow))}
       ${line('Агентское вознаграждение', rub(o.agentRub))}
@@ -305,7 +309,7 @@ function renderCost() {
   const p = store.getParams(), act = activeOoo(p);
   $('#costBody').innerHTML = `
     <div class="card">
-      <div class="ghead"><h3>🇷🇺 ООО</h3><span class="muted small">в расчётах: <b>${act.length} из 3</b></span></div>
+      <div class="ghead"><h3>🇷🇺 ООО</h3><span class="muted small">в расчётах: <b>${act.length} из 4</b></span></div>
       ${p.ooo.map((o, i) => `<div class="ooo ${o.active ? '' : 'off'}">
         ${oooHead(o)}
         ${o.active ? `
@@ -317,6 +321,10 @@ function renderCost() {
           <div class="subhead">Статьи расходов · в месяц <b data-total="ooo${o.id}">${total(o.expenses)}</b> ₽</div>
           ${itemsHtml(o.expenses, '₽', 'ooo' + o.id)}` : '<div class="muted small">не учитывается в расчётах</div>'}
       </div>`).join('')}
+      <div class="ooo nr ${p.nr.active ? '' : 'off'}">
+        ${oooHead(p.nr)}
+        ${p.nr.active ? fieldHtml('nr.bankPct', 'Комиссия банка', '%', p) : '<div class="muted small">не учитывается в расчётах</div>'}
+      </div>
     </div>
     <div class="card">
       <div class="ghead"><h3>🇦🇪 Дубай</h3><span class="muted small">в месяц <b data-total="dubai">${total(p.dubai)}</b> USD</span></div>
@@ -336,7 +344,7 @@ function renderSale() {
   const p = store.getParams(), act = activeOoo(p);
   $('#saleBody').innerHTML = `
     <div class="card">
-      <div class="ghead"><h3>🇷🇺 ООО</h3><span class="muted small">в расчётах: <b>${act.length} из 3</b></span></div>
+      <div class="ghead"><h3>🇷🇺 ООО</h3><span class="muted small">в расчётах: <b>${act.length} из 4</b></span></div>
       ${p.ooo.map((o, i) => `<div class="ooo ${o.active ? '' : 'off'}">
         ${oooHead(o)}
         ${o.active ? `
@@ -344,6 +352,10 @@ function renderSale() {
           ${fieldHtml(`ooo.${i}.sale.vatPct`, 'НДС', '%', p)}
           ${fieldHtml(`ooo.${i}.sale.vatOnTop`, 'НДС сверху вознаграждения', 'bool', p)}` : '<div class="muted small">не учитывается в расчётах</div>'}
       </div>`).join('')}
+      <div class="ooo nr ${p.nr.active ? '' : 'off'}">
+        ${oooHead(p.nr)}
+        ${p.nr.active ? fieldHtml('nr.sale.bankPct', 'Комиссия банка', '%', p) : '<div class="muted small">не учитывается в расчётах</div>'}
+      </div>
     </div>
     <div class="card">
       <div class="ghead"><h3>🇦🇪 Дубай</h3><span class="muted small">в месяц <b data-total="saleDubai">${total(p.sale.dubai)}</b> USD</span></div>
@@ -365,8 +377,8 @@ function updatePreviews() {
   const ids = act.length ? act.map(o => o.id) : [0];
   const costR = id => calcDay([{ amount: 1e7, ooo: id }], todayCb, p, 0).costRate;
   const saleR = id => 1 / clientQuote(1, todayCb, p, id);
-  const others = f => ids.slice(1).map(id => ` · ${esc(p.ooo.find(o => o.id === id).name)}: ${fmt(f(id), 2)}`).join('');
-  const who = ids[0] ? (act.length > 1 ? ` · ${p.ooo.find(o => o.id === ids[0]).name}` : '') : ' · ООО выключены';
+  const others = f => ids.slice(1).map(id => ` · ${esc(channel(p, id).name)}: ${fmt(f(id), 2)}`).join('');
+  const who = ids[0] ? (act.length > 1 ? ` · ${channel(p, ids[0]).name}` : '') : ' · ООО и счёт выключены';
   $('#costPreview').textContent = `${fmt(costR(ids[0]), 2)} ₽ за 1 USDT`;
   $('#costPreviewNote').textContent = `ЦБ ${fmt(todayCb, 4)}${who}${others(costR)} · без постоянных расходов — они зависят от потока за день`;
   $('#salePreview').textContent = `${fmt(saleR(ids[0]), 2)} ₽ за 1 USDT`;
@@ -379,7 +391,7 @@ function saveField(el) {
     const t = el.dataset.t;
     setPath(p, el.dataset.p, t === 'bool' ? el.checked : t === 'rub' ? parseNum(el.value) : parseNum(el.value) / 100);
   } else if (el.dataset.oname) {
-    p.ooo.find(o => o.id === +el.dataset.oname).name = el.value.trim() || `ООО ${el.dataset.oname}`;
+    channel(p, el.dataset.oname).name = el.value.trim() || (+el.dataset.oname === 4 ? 'Нерезидентский счёт (Дубай)' : `ООО ${el.dataset.oname}`);
   } else {
     const row = el.closest('.exp'); if (!row) return;
     const item = ownerList(p, row.dataset.owner).find(x => x.id === row.dataset.id);
@@ -403,7 +415,7 @@ for (const body of [$('#costBody'), $('#saleBody')]) {
   body.addEventListener('change', e => {
     const el = e.target;
     if (el.dataset.oon) {
-      const p = store.getParams(); p.ooo.find(o => o.id === +el.dataset.oon).active = el.checked; store.setParams(p); rerender(); return;
+      const p = store.getParams(); channel(p, el.dataset.oon).active = el.checked; store.setParams(p); rerender(); return;
     }
     if (el.dataset.t === 'bool' || el.dataset.f === 'from') saveField(el);
     if (el.dataset.f === 'period') { saveField(el); rerender(); }

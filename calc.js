@@ -16,6 +16,8 @@ export const DEFAULT_PARAMS = {
   dubai: [],                                // Дубай (себестоимость): статьи, USD
   cost: { markupRub: 1, hkPct: 0.02 },      // Гонконг (себестоимость): курс ЦБ + 1 ₽, комиссия 2%
   sale: { markupRub: 1, hkPct: 0.025, dubai: [] }, // продажа: Гонконг ЦБ + 1 ₽, 2,5%; свои статьи Дубая
+  // нерезидентский счёт в Дубае — канал вместо ООО: только комиссия банка, дальше Гонконг и Дубай как обычно
+  nr: { id: 4, kind: 'nr', name: 'Нерезидентский счёт (Дубай)', active: false, bankPct: 0, expenses: [], sale: { bankPct: 0 } },
 };
 
 export function normalizeParams(p) {
@@ -27,6 +29,8 @@ export function normalizeParams(p) {
   const oldSale = Object.fromEntries(Object.keys(OOO_SALE).filter(k => p?.sale?.[k] != null).map(k => [k, p.sale[k]]));
   out.ooo = out.ooo.map((o, i) => ({ ...mkOoo(i + 1, !!o.active), ...oldCost, ...o, sale: { ...OOO_SALE, ...oldSale, ...(o.sale || {}) }, expenses: o.expenses || [] }));
   for (const k of Object.keys(OOO_COST)) delete out[k];
+  out.nr = { ...structuredClone(DEFAULT_PARAMS.nr), ...(p?.nr || {}), id: 4, kind: 'nr', expenses: [],
+    sale: { ...DEFAULT_PARAMS.nr.sale, ...(p?.nr?.sale || {}) } };
   // надбавка к ЦБ раньше была в %, теперь в рублях
   for (const side of ['cost', 'sale']) {
     if (out[side].markupRub == null) out[side] = { ...DEFAULT_PARAMS[side], hkPct: out[side].hkPct ?? DEFAULT_PARAMS[side].hkPct };
@@ -54,7 +58,14 @@ export function lumpsIn(items, ym) {
 }
 const lumpSum = (items, ym) => lumpsIn(items, ym).reduce((s, e) => s + (+e.amount || 0), 0);
 
-export const activeOoo = p => p.ooo.filter(o => o.active);
+/** Каналы приёма денег: три ООО + нерезидентский счёт. */
+export const channels = p => [...p.ooo, p.nr];
+export const channel = (p, id) => channels(p).find(x => x.id === +id);
+export const activeOoo = p => channels(p).filter(o => o.active);
+
+/** Нерезидентский счёт: удерживается только комиссия банка. */
+const nrPart = (flow, o) => ({ agentRub: 0, vatRub: 0, retainedRub: flow * o.bankPct, revenueRub: 0, bankRub: flow * o.bankPct,
+  fixedRub: 0, taxBaseRub: 0, taxRub: 0, resultRub: 0 });
 
 function hk(transitRub, cb, { markupRub, hkPct }) {
   const hkRub = transitRub * hkPct;
@@ -96,14 +107,16 @@ export function calcDay(ops, cb, pIn, share) {
   const keys = new Set([...act.map(o => o.id), ...Object.keys(flowBy).map(Number)]);
 
   const units = [...keys].sort().map(id => {
-    const o = p.ooo.find(x => x.id === id);
+    const o = channel(p, id);
+    const isNr = o?.kind === 'nr';
     const flow = flowBy[id] || 0;
     const isOoo = id !== 0;
-    const fixed = isOoo && o?.active ? monthlySum(o.expenses) * share : 0;
-    const rf = isOoo ? oooPart(flow, o, fixed) : null;
+    const fixed = isOoo && !isNr && o?.active ? monthlySum(o.expenses) * share : 0;
+    const rf = !isOoo ? null : isNr ? nrPart(flow, o) : oooPart(flow, o, fixed);
     const transitRub = flow - (rf ? rf.retainedRub : 0);
     const cost = hk(transitRub, cb, p.cost);
-    const sale = hk(flow - (isOoo ? saleRetained(flow, o.sale) : 0), cb, p.sale);
+    const saleKeep = !isOoo ? 0 : isNr ? flow * o.sale.bankPct : saleRetained(flow, o.sale);
+    const sale = hk(flow - saleKeep, cb, p.sale);
     const getsDubai = (isOoo && o?.active) || (!isOoo && !act.length);
     const dubai = getsDubai ? dubaiPerUnit : 0;
     const saleDubai = getsDubai ? saleDubaiPerUnit : 0;
@@ -133,8 +146,9 @@ export function calcDay(ops, cb, pIn, share) {
  */
 export function clientQuote(rub, cb, pIn, oooId = 1) {
   const p = normalizeParams(pIn);
-  const o = oooId ? p.ooo.find(x => x.id === +oooId) : null;
-  return hk(rub - (o ? saleRetained(rub, o.sale) : 0), cb, p.sale).usdt;
+  const o = oooId ? channel(p, oooId) : null;
+  const keep = !o ? 0 : o.kind === 'nr' ? rub * o.sale.bankPct : saleRetained(rub, o.sale);
+  return hk(rub - keep, cb, p.sale).usdt;
 }
 export function rubForUsdt(usdt, cb, pIn, oooId = 1) {
   const per = clientQuote(1, cb, pIn, oooId);
@@ -181,8 +195,8 @@ export function periodReport(days, pIn, period) {
 
   // ООО — налог считается по каждому ООО помесячно
   const ooo = [...new Set([...act.map(o => o.id), ...rows.flatMap(x => x.r.units.filter(u => u.id && u.flow).map(u => u.id))])].sort().map(id => {
-    const o = p.ooo.find(x => x.id === id);
-    const t = { id, name: o.name, active: o.active, flow: 0, agentRub: 0, vatRub: 0, revenueRub: 0, bankRub: 0, fixedRub: 0, lumpRub: 0, taxRub: 0, resultRub: 0, lumps: [] };
+    const o = channel(p, id);
+    const t = { id, kind: o.kind || 'ooo', name: o.name, active: o.active, flow: 0, agentRub: 0, vatRub: 0, revenueRub: 0, bankRub: 0, fixedRub: 0, lumpRub: 0, taxRub: 0, resultRub: 0, lumps: [] };
     for (const m of months) {
       const us = rows.filter(x => x.d.date.startsWith(m)).map(x => x.r.units.find(u => u.id === id)).filter(Boolean);
       const s = k => us.reduce((a, u) => a + (u.rf?.[k] || 0), 0);
@@ -190,11 +204,11 @@ export function periodReport(days, pIn, period) {
       const lumps = o.active && !isDay ? lumpsIn(o.expenses, m) : [];
       const lump = lumps.reduce((a, e) => a + +e.amount, 0);
       const rev = s('revenueRub'), bank = s('bankRub');
-      const tax = Math.max(0, rev - bank - fixed - lump) * o.profitTaxPct;
+      const tax = o.kind === 'nr' ? 0 : Math.max(0, rev - bank - fixed - lump) * o.profitTaxPct;
       t.flow += us.reduce((a, u) => a + u.flow, 0);
       t.agentRub += s('agentRub'); t.vatRub += s('vatRub'); t.revenueRub += rev; t.bankRub += bank;
       t.fixedRub += fixed; t.lumpRub += lump; t.taxRub += tax; t.lumps.push(...lumps);
-      t.resultRub += rev - bank - fixed - lump - tax;
+      if (o.kind !== 'nr') t.resultRub += rev - bank - fixed - lump - tax;
     }
     return t;
   });

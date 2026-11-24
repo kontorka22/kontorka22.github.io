@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calcDay, DEFAULT_PARAMS, periodReport, clientQuote, rubForUsdt, lumpsIn, monthsOfYear } from '../calc.js';
+import { channels, calcDay, DEFAULT_PARAMS, periodReport, clientQuote, rubForUsdt, lumpsIn, monthsOfYear } from '../calc.js';
 
 const near = (a, b, eps = 1e-4) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 const m = (name, amount, period = 'month', from) => ({ id: name, name, amount, period, from });
@@ -115,4 +115,21 @@ test('у каждого ООО свои проценты; старые общи�
   near(r2.units[0].rf.agentRub, 20000);
   near(r2.units[0].rf.bankRub, 10000);
   near(r2.units[0].sale.usdt, 1e6 * (1 - 0.018) * (1 - 0.025) / 81);
+});
+
+test('нерезидентский счёт: только комиссия банка, дальше Гонконг и Дубай; Дубай делится и на него', () => {
+  const p = structuredClone(DEFAULT_PARAMS);
+  p.nr.active = true; p.nr.bankPct = 0.01; p.nr.sale.bankPct = 0.015;
+  p.dubai = [m('Номинал', 10000)];
+  const r = calcDay([{ amount: 1e6, ooo: 4 }], 80, p, 1);
+  const u = r.units.find(x => x.id === 4);
+  near(u.transitRub, 990000);
+  near(u.cost.usdt, 990000 * 0.98 / 81);
+  near(u.sale.usdt, 985000 * 0.975 / 81);
+  near(u.dubaiUsd, 5000);                 // ООО 1 + счёт = 2 канала
+  near(clientQuote(1e6, 80, p, 4), u.sale.usdt);
+  const rep = periodReport([{ date: '2026-12-01', ops: [{ amount: 1e6, ooo: 4 }], cb: 80, params: p }], p, { kind: 'month', months: ['2026-12'] });
+  const nr = rep.ooo.find(o => o.id === 4);
+  near(nr.bankRub, 10000); near(nr.resultRub, 0); near(nr.taxRub, 0);
+  assert.equal(channels(p).length, 4);
 });
