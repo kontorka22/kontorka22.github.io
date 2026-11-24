@@ -103,7 +103,7 @@
 <!-- вход в общий журнал -->
 <dialog id="syncDlg">
   <div class="dlghead"><h3>Общий журнал</h3><button type="button" class="x" id="syncClose">×</button></div>
-  <label class="lbl">Ваше имя — им подписываются изменения<input id="meName" autocomplete="off"></label>
+  <label class="lbl">Ваше имя — им подписываются изменения<input id="meName" type="text" inputmode="text" autocapitalize="words" autocomplete="off"></label>
   <div id="syncLogged" class="hidden">
     <p class="muted small">Вход: <b id="syncEmail"></b></p>
     <div class="askbtns">
@@ -144,6 +144,6 @@
   <button type="button" data-tab="sale"><i>↑</i>Продажа</button>
 </nav>
 
-<script type="module" src="app.js?v=19"></script>
+<script type="module" src="app.js?v=20"></script>
 </body>
 </html>

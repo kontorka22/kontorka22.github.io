@@ -27,13 +27,16 @@ function moneyInput(el, onChange, decimals = false) {
 // ---------------- окна подтверждения и ввода ----------------
 // Стандартные confirm()/prompt() браузера не везде показываются (во встроенных панелях
 // и некоторых приложениях они молча возвращают «нет»), поэтому свои окна.
-function modal({ text, input, okText = 'OK', danger = false }) {
+function modal({ text, input, okText = 'OK', danger = false, keyboard = 'decimal' }) {
   return new Promise(resolve => {
     const d = $('#askDlg');
     $('#askText').textContent = text;
     const inp = $('#askInput');
     inp.classList.toggle('hidden', input === undefined);
     inp.value = input ?? '';
+    // decimal — цифровая клавиатура (курс), text — обычная (имя)
+    inp.setAttribute('inputmode', keyboard);
+    inp.setAttribute('autocapitalize', keyboard === 'text' ? 'words' : 'off');
     $('#askOk').textContent = okText;
     $('#askOk').classList.toggle('danger', danger);
     const done = v => { d.close(); $('#askOk').onclick = $('#askCancel').onclick = null; d.oncancel = null; resolve(v); };
@@ -46,7 +49,7 @@ function modal({ text, input, okText = 'OK', danger = false }) {
   });
 }
 const askYes = (text, okText = 'Удалить') => modal({ text, okText, danger: true });
-const askValue = (text, value) => modal({ text, input: value, okText: 'Сохранить' });
+const askValue = (text, value, keyboard = 'decimal') => modal({ text, input: value, okText: 'Сохранить', keyboard });
 
 // ---------------- вкладки ----------------
 const TITLES = { day: 'День', rep: 'Отчёт', plan: 'План', cost: 'Себестоимость', sale: 'Продажа' };
@@ -663,6 +666,6 @@ store.onChange(s => {
 renderSyncPill('off');
 loadDate(st.date);
 // имя нужно, чтобы подписывать изменения
-if (!store.me()) askValue('Как вас зовут? Имя будет видно у всех ваших изменений.', '').then(v => { if (v && v.trim()) { store.setMe(v); renderSyncPill('off'); } });
+if (!store.me()) askValue('Как вас зовут? Имя будет видно у всех ваших изменений.', '', 'text').then(v => { if (v && v.trim()) { store.setMe(v); renderSyncPill('off'); } });
 store.syncNow();
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js');
