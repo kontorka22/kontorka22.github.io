@@ -190,3 +190,7 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 #planIn .qinput { margin-top: 12px; }
 .bar.big { height: 8px; border-radius: 4px; margin: 8px 0 4px; } .bar.big i { border-radius: 4px; background: var(--good); }
 .tabs button { font-size: 11px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pair label { display: flex; flex-direction: column; gap: 6px; }
+.pair .qinput { margin: 0; } .pair .qinput input { font-size: 20px; padding: 11px 10px; } .pair .qinput span { font-size: 18px; width: auto; }
+#planIn > .muted { margin-top: 6px; }

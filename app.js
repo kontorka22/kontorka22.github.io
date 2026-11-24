@@ -314,21 +314,30 @@ function renderPlan() {
   $('#plLabel').innerHTML = `<b>${monthName(planMonth)}</b>`;
   const pl = getPlan(store.getParams(), planMonth);
   const cbShown = pl.cb || todayCb || 0;
+  const perDay = pl.mode === 'month' ? (pl.days ? pl.amount / pl.days : 0) : pl.amount;
+  const perMonth = pl.mode === 'month' ? pl.amount : pl.amount * pl.days;
+  const money = v => (v ? fmt(Math.round(v)) : '');
   $('#planIn').innerHTML = `
-    <div class="seg big" id="planMode">
-      <button type="button" data-mode="day" class="${pl.mode === 'day' ? 'on' : ''}">Поток в день</button>
-      <button type="button" data-mode="month" class="${pl.mode === 'month' ? 'on' : ''}">Поток за месяц</button>
+    <div class="pair">
+      <label><span class="muted small">Поток в день</span>
+        <span class="qinput"><input id="planDay" inputmode="numeric" placeholder="0" value="${money(perDay)}" autocomplete="off"><span>₽</span></span></label>
+      <label><span class="muted small">Поток за месяц</span>
+        <span class="qinput"><input id="planMonthSum" inputmode="numeric" placeholder="0" value="${money(perMonth)}" autocomplete="off"><span>₽</span></span></label>
     </div>
-    <div class="qinput"><input id="planAmount" inputmode="numeric" placeholder="0" value="${pl.amount ? fmt(pl.amount) : ''}" autocomplete="off"><span>₽</span></div>
+    <div class="muted small">Введите любое из двух — второе посчитается само.</div>
     <label class="prm"><span>Рабочих дней в месяце</span><span class="pin"><input id="planDays" inputmode="numeric" value="${pl.days}"><i>дн</i></span></label>
     <label class="prm"><span>Курс ЦБ для прогноза</span><span class="pin"><input id="planCb" inputmode="decimal" value="${cbShown ? fmt(cbShown, 4) : ''}"><i>₽</i></span></label>
     <div class="muted small">${pl.cb ? 'курс введён вручную' : 'сегодняшний курс ЦБ — можно поменять'}</div>`;
-  document.querySelectorAll('#planMode button').forEach(b => b.addEventListener('click', () => { savePlan({ mode: b.dataset.mode }); renderPlan(); }));
-  $('#planAmount').addEventListener('input', e => {
-    const d = e.target.value.replace(/\D/g, ''); e.target.value = d ? fmt(parseInt(d, 10)) : '';
-    savePlan({ amount: d ? parseInt(d, 10) : 0 }); renderPlanOut();
-  });
-  $('#planDays').addEventListener('input', e => { savePlan({ days: parseInt(e.target.value.replace(/\D/g, ''), 10) || 0 }); renderPlanOut(); });
+  const digits = el => { const d = el.value.replace(/\D/g, ''); el.value = d ? fmt(parseInt(d, 10)) : ''; return d ? parseInt(d, 10) : 0; };
+  // обновляем второе поле, не трогая то, в котором сейчас курсор
+  const syncOther = () => {
+    const q = getPlan(store.getParams(), planMonth);
+    if (q.mode === 'day') $('#planMonthSum').value = money(q.amount * q.days);
+    else $('#planDay').value = money(q.days ? q.amount / q.days : 0);
+  };
+  $('#planDay').addEventListener('input', e => { savePlan({ mode: 'day', amount: digits(e.target) }); syncOther(); renderPlanOut(); });
+  $('#planMonthSum').addEventListener('input', e => { savePlan({ mode: 'month', amount: digits(e.target) }); syncOther(); renderPlanOut(); });
+  $('#planDays').addEventListener('input', e => { savePlan({ days: parseInt(e.target.value.replace(/\D/g, ''), 10) || 0 }); syncOther(); renderPlanOut(); });
   $('#planCb').addEventListener('input', e => { savePlan({ cb: parseNum(e.target.value) }); renderPlanOut(); });
   renderPlanOut();
 }
