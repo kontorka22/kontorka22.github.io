@@ -2,8 +2,8 @@
 // чтобы у обоих был один журнал, одни настройки и общая история изменений.
 // Вход по почте и паролю (Supabase Auth). Имя пользователя подписывает все изменения.
 
-import { DEFAULT_PARAMS, normalizeParams } from './calc.js?v=22';
-import { SUPABASE } from './config.js?v=22';
+import { DEFAULT_PARAMS, normalizeParams } from './calc.js?v=23';
+import { SUPABASE } from './config.js?v=23';
 
 const LS_DAYS = 'days-v1';
 const LS_PARAMS = 'params-v1';
@@ -141,7 +141,7 @@ export function clearLocal() {
 }
 export function logout() {
   const c = syncCfg();
-  setSession({ url: c.url, anonKey: c.anonKey });
+  setSession({ url: c.url, anonKey: c.anonKey, email: c.email });
   clearLocal();
   emit({ state: 'off' });
 }
@@ -150,12 +150,26 @@ async function token() {
   const c = syncCfg();
   if (!c.refresh) return null;
   if (Date.now() < c.exp - 60_000) return c.access;
-  const r = await fetch(`${c.url}/auth/v1/token?grant_type=refresh_token`, {
-    method: 'POST', headers: { apikey: c.anonKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: c.refresh }),
-  });
+  // продление одно на всё приложение: два одновременных продления «сжигают» токен
+  if (!refreshing) refreshing = refreshSession(c).finally(() => { refreshing = null; });
+  return refreshing;
+}
+let refreshing = null;
+async function refreshSession(c) {
+  let r;
+  try {
+    r = await fetch(`${c.url}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST', headers: { apikey: c.anonKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: c.refresh }),
+    });
+  } catch { throw new Error('Нет связи — попробую позже'); } // сеть: остаёмся в приложении
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { setSession({ url: c.url, anonKey: c.anonKey, email: c.email }); clearLocal(); emit({ state: 'off' }); throw new Error('Сессия истекла — войдите снова'); }
+  if (!r.ok) {
+    // выкидываем на экран входа только если сервер явно сказал, что вход недействителен
+    const dead = (r.status === 400 || r.status === 401) && /refresh|invalid_grant|session|not_found|already/i.test(JSON.stringify(j));
+    if (dead) { setSession({ url: c.url, anonKey: c.anonKey, email: c.email }); clearLocal(); emit({ state: 'off' }); throw new Error('Вход истёк — войдите снова'); }
+    throw new Error(`Сервер не ответил (${r.status}) — попробую позже`);
+  }
   setSession({ ...c, access: j.access_token, refresh: j.refresh_token, exp: Date.now() + j.expires_in * 1000 });
   return j.access_token;
 }
@@ -164,13 +178,15 @@ let listeners = [];
 export const onChange = fn => listeners.push(fn);
 const emit = status => listeners.forEach(fn => fn(status));
 
-async function api(path, opts = {}) {
+async function api(path, opts = {}, retried = false) {
   const c = syncCfg();
   const tk = await token();
   const r = await fetch(`${c.url}/rest/v1/${path}`, {
     ...opts,
     headers: { apikey: c.anonKey, Authorization: `Bearer ${tk}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
+  // токен просрочился раньше, чем думал телефон (сон, сбитые часы) — продлеваем и повторяем один раз
+  if (r.status === 401 && !retried) { setSession({ ...syncCfg(), exp: 0 }); return api(path, opts, true); }
   if (!r.ok) throw new Error(`Синхронизация: ${r.status} ${await r.text()}`);
   return r.status === 204 || r.status === 201 ? null : r.json();
 }

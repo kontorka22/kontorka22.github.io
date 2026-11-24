@@ -1,7 +1,7 @@
-import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel, planForecast } from './calc.js?v=22';
-import { getUsdRate, todayMsk, addDays } from './cbr.js?v=22';
-import { SUPABASE } from './config.js?v=22';
-import * as store from './store.js?v=22';
+import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel, planForecast } from './calc.js?v=23';
+import { getUsdRate, todayMsk, addDays } from './cbr.js?v=23';
+import { SUPABASE } from './config.js?v=23';
+import * as store from './store.js?v=23';
 
 const $ = s => document.querySelector(s);
 const nf = d => new Intl.NumberFormat('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -672,7 +672,12 @@ store.onChange(s => {
 function lock(on) {
   document.body.classList.toggle('locked', on);
   $('#gate').classList.toggle('hidden', !on);
-  if (on) { for (const d of document.querySelectorAll('dialog[open]')) d.close(); $('#gateForm').name.value = store.me(); }
+  if (on) {
+    for (const d of document.querySelectorAll('dialog[open]')) d.close();
+    const f = $('#gateForm');
+    f.name.value = store.me();
+    f.email.value = store.syncCfg().email || f.email.value;
+  }
 }
 $('#gateForm').addEventListener('submit', async e => {
   e.preventDefault();
