@@ -597,6 +597,8 @@ store.onChange(s => {
 });
 
 // ---------------- старт ----------------
+// общая база не подключена — кнопка синхронизации не нужна, всё хранится в телефоне
+if (!(SUPABASE.url && SUPABASE.anonKey) && !store.syncCfg().refresh) $('#sync').classList.add('hidden');
 loadDate(st.date);
 store.syncNow();
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js');
