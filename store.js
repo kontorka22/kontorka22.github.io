@@ -2,8 +2,8 @@
 // чтобы у обоих был один журнал, одни настройки и общая история изменений.
 // Вход по почте и паролю (Supabase Auth). Имя пользователя подписывает все изменения.
 
-import { DEFAULT_PARAMS, normalizeParams } from './calc.js?v=19';
-import { SUPABASE } from './config.js?v=19';
+import { DEFAULT_PARAMS, normalizeParams } from './calc.js?v=22';
+import { SUPABASE } from './config.js?v=22';
 
 const LS_DAYS = 'days-v1';
 const LS_PARAMS = 'params-v1';
@@ -113,7 +113,7 @@ export const baseConfigured = () => { const c = syncCfg(); return !!(c.url && c.
 export const loggedIn = () => !!syncCfg().refresh;
 const setSession = c => put(LS_SYNC, c);
 
-export async function login(email, password, url, anonKey) {
+export async function login(email, password, url, anonKey, name) {
   const base = syncCfg();
   url = (url || base.url).replace(/\/+$/, ''); anonKey = anonKey || base.anonKey;
   if (!url || !anonKey) throw new Error('Общая база ещё не подключена');
@@ -122,12 +122,29 @@ export async function login(email, password, url, anonKey) {
     body: JSON.stringify({ email, password }),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error_description === 'Invalid login credentials' ? 'Неверная почта или пароль' : (j.error_description || j.msg || 'Не удалось войти'));
+  if (!r.ok) {
+    const m = j.error_description || j.msg || '';
+    throw new Error(j.error_code === 'invalid_credentials' || /invalid login/i.test(m) ? 'Неверная почта или пароль'
+      : /email not confirmed/i.test(m) ? 'Почта не подтверждена' : (m || 'Не удалось войти'));
+  }
+  // на телефоне не должно оставаться данных, набранных до входа: берём всё из общей базы
+  clearLocal();
   setSession({ url, anonKey, email, access: j.access_token, refresh: j.refresh_token, exp: Date.now() + j.expires_in * 1000 });
-  if (!me()) setMe(j.user?.user_metadata?.name || email.split('@')[0]);
+  if (name) setMe(name); else if (!me()) setMe(j.user?.user_metadata?.name || email.split('@')[0]);
   await syncNow();
 }
-export function logout() { const c = syncCfg(); setSession({ url: c.url, anonKey: c.anonKey }); emit({ state: 'off' }); }
+/** Стереть с телефона все данные (при выходе): без входа ничего не должно быть видно. */
+export function clearLocal() {
+  days = {}; log = [];
+  paramsMeta = { updatedAt: '1970-01-01T00:00:00Z' }; params = normalizeParams(undefined);
+  for (const k of [LS_DAYS, LS_PARAMS, LS_LOG, 'cbr-cache-v1']) localStorage.removeItem(k);
+}
+export function logout() {
+  const c = syncCfg();
+  setSession({ url: c.url, anonKey: c.anonKey });
+  clearLocal();
+  emit({ state: 'off' });
+}
 
 async function token() {
   const c = syncCfg();
@@ -138,7 +155,7 @@ async function token() {
     body: JSON.stringify({ refresh_token: c.refresh }),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { setSession({ url: c.url, anonKey: c.anonKey, email: c.email }); throw new Error('Сессия истекла — войдите снова'); }
+  if (!r.ok) { setSession({ url: c.url, anonKey: c.anonKey, email: c.email }); clearLocal(); emit({ state: 'off' }); throw new Error('Сессия истекла — войдите снова'); }
   setSession({ ...c, access: j.access_token, refresh: j.refresh_token, exp: Date.now() + j.expires_in * 1000 });
   return j.access_token;
 }

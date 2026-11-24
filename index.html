@@ -12,9 +12,25 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
+<!-- экран входа: без почты и пароля приложение ничего не показывает -->
+<section id="gate" class="gate hidden">
+  <div class="gatebox">
+    <img src="icons/icon-192.png" alt="" class="gatelogo">
+    <h1>Поток</h1>
+    <p class="muted small">Войдите, чтобы открыть приложение</p>
+    <form id="gateForm" autocomplete="on">
+      <label class="lbl">Ваше имя — им подписываются изменения<input name="name" type="text" inputmode="text" autocapitalize="words" autocomplete="nickname" required></label>
+      <label class="lbl">Почта<input name="email" type="email" inputmode="email" autocapitalize="off" autocomplete="username" required></label>
+      <label class="lbl">Пароль<input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="btn">Войти</button>
+      <div id="gateErr" class="err small"></div>
+    </form>
+  </div>
+</section>
+
 <header class="top">
   <h1 id="title">День</h1>
   <button id="sync" class="sync" type="button"><span class="dot"></span><span id="syncText">не подключено</span></button>
@@ -144,6 +160,6 @@
   <button type="button" data-tab="sale"><i>↑</i>Продажа</button>
 </nav>
 
-<script type="module" src="app.js?v=20"></script>
+<script type="module" src="app.js?v=22"></script>
 </body>
 </html>

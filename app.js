@@ -1,7 +1,7 @@
-import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel, planForecast } from './calc.js?v=19';
-import { getUsdRate, todayMsk, addDays } from './cbr.js?v=19';
-import { SUPABASE } from './config.js?v=19';
-import * as store from './store.js?v=19';
+import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel, planForecast } from './calc.js?v=22';
+import { getUsdRate, todayMsk, addDays } from './cbr.js?v=22';
+import { SUPABASE } from './config.js?v=22';
+import * as store from './store.js?v=22';
 
 const $ = s => document.querySelector(s);
 const nf = d => new Intl.NumberFormat('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -652,10 +652,15 @@ $('#loginForm').addEventListener('submit', async e => {
     f.password.value = ''; renderSyncBox(); renderSyncPill('ok'); RENDER[currentTab]();
   } catch (err) { $('#loginErr').textContent = err.message; }
 });
-$('#logoutBtn').addEventListener('click', () => { store.logout(); renderSyncBox(); renderSyncPill('off'); });
+$('#logoutBtn').addEventListener('click', async () => {
+  if (!await askYes('Выйти? Данные на этом телефоне сотрутся, в общей базе всё останется.', 'Выйти')) return;
+  store.logout(); renderSyncPill('off'); lock(true);
+});
 $('#syncNowBtn').addEventListener('click', () => store.syncNow());
 
 store.onChange(s => {
+  // сессия закончилась или вышли — снова экран входа
+  if (!store.loggedIn()) { lock(true); return; }
   renderSyncPill(s.state);
   $('#sync').title = s.message || '';
   if (dlg.open) $('#history').innerHTML = historyHtml();
@@ -663,9 +668,27 @@ store.onChange(s => {
 });
 
 // ---------------- старт ----------------
+// ---------------- экран входа ----------------
+function lock(on) {
+  document.body.classList.toggle('locked', on);
+  $('#gate').classList.toggle('hidden', !on);
+  if (on) { for (const d of document.querySelectorAll('dialog[open]')) d.close(); $('#gateForm').name.value = store.me(); }
+}
+$('#gateForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target; $('#gateErr').textContent = '';
+  const btn = f.querySelector('button'); btn.disabled = true; btn.textContent = 'Вход…';
+  try {
+    await store.login(f.email.value.trim(), f.password.value, '', '', f.name.value.trim());
+    f.password.value = '';
+    lock(false); renderSyncPill('ok'); loadDate(todayMsk()); openTab('day');
+  } catch (err) { $('#gateErr').textContent = err.message; }
+  finally { btn.disabled = false; btn.textContent = 'Войти'; }
+});
+
 renderSyncPill('off');
+lock(!store.loggedIn());
 loadDate(st.date);
 // имя нужно, чтобы подписывать изменения
-if (!store.me()) askValue('Как вас зовут? Имя будет видно у всех ваших изменений.', '', 'text').then(v => { if (v && v.trim()) { store.setMe(v); renderSyncPill('off'); } });
 store.syncNow();
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js');
