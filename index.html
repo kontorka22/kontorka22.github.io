@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 <header class="top">
@@ -109,6 +109,16 @@
   </form>
 </dialog>
 
+<!-- подтверждение / ввод значения -->
+<dialog id="askDlg" class="ask">
+  <p id="askText"></p>
+  <input id="askInput" class="hidden" inputmode="decimal" autocomplete="off">
+  <div class="askbtns">
+    <button type="button" id="askCancel" class="btn sec">Отмена</button>
+    <button type="button" id="askOk" class="btn">OK</button>
+  </div>
+</dialog>
+
 <nav class="tabs">
   <button type="button" data-tab="day" class="active"><i>◉</i>День</button>
   <button type="button" data-tab="rep"><i>▤</i>Отчёт</button>
@@ -116,6 +126,6 @@
   <button type="button" data-tab="sale"><i>↑</i>Продажа</button>
 </nav>
 
-<script type="module" src="app.js?v=13"></script>
+<script type="module" src="app.js?v=14"></script>
 </body>
 </html>

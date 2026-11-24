@@ -24,6 +24,30 @@ function moneyInput(el, onChange, decimals = false) {
   });
 }
 
+// ---------------- окна подтверждения и ввода ----------------
+// Стандартные confirm()/prompt() браузера не везде показываются (во встроенных панелях
+// и некоторых приложениях они молча возвращают «нет»), поэтому свои окна.
+function modal({ text, input, okText = 'OK', danger = false }) {
+  return new Promise(resolve => {
+    const d = $('#askDlg');
+    $('#askText').textContent = text;
+    const inp = $('#askInput');
+    inp.classList.toggle('hidden', input === undefined);
+    inp.value = input ?? '';
+    $('#askOk').textContent = okText;
+    $('#askOk').classList.toggle('danger', danger);
+    const done = v => { d.close(); $('#askOk').onclick = $('#askCancel').onclick = null; d.oncancel = null; resolve(v); };
+    $('#askOk').onclick = () => done(input === undefined ? true : inp.value);
+    $('#askCancel').onclick = () => done(input === undefined ? false : null);
+    d.oncancel = e => { e.preventDefault(); done(input === undefined ? false : null); };
+    inp.onkeydown = e => { if (e.key === 'Enter') $('#askOk').click(); };
+    d.showModal();
+    if (input !== undefined) { inp.focus(); inp.select(); }
+  });
+}
+const askYes = (text, okText = 'Удалить') => modal({ text, okText, danger: true });
+const askValue = (text, value) => modal({ text, input: value, okText: 'Сохранить' });
+
 // ---------------- вкладки ----------------
 const TITLES = { day: 'День', rep: 'Отчёт', cost: 'Себестоимость', sale: 'Продажа' };
 const RENDER = { day: () => renderDay(), rep: () => renderReport(), cost: () => renderCost(), sale: () => renderSale() };
@@ -141,11 +165,11 @@ function addOp(amount) {
   st.qVal = 0; $('#qIn').value = '';
   renderDay();
 }
-function removeOp(id) {
+async function removeOp(id) {
   const saved = store.getDay(st.date);
   const op = saved.ops.find(o => o.id === id);
-  if (!confirm(`Удалить поступление ${rub(op.amount)}?`)) return;
-  const ops = saved.ops.filter(o => o.id !== id);
+  if (!await askYes(`Удалить поступление ${rub(op.amount)}?`)) return;
+  const ops = store.getDay(st.date).ops.filter(o => o.id !== id);
   if (!ops.length) store.deleteDay(st.date);
   else store.saveDay({ ...saved, ops, flow: ops.reduce((s, o) => s + o.amount, 0) });
   renderDay();
@@ -161,8 +185,8 @@ $('#qIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('#qAdd').c
 $('#dPrev').addEventListener('click', () => loadDate(addDays(st.date, -1)));
 $('#dNext').addEventListener('click', () => loadDate(addDays(st.date, 1)));
 $('#date').addEventListener('change', e => e.target.value && loadDate(e.target.value));
-$('#cbCard').addEventListener('click', () => {
-  const v = prompt('Курс ЦБ вручную, ₽ за 1 USD\n(оставьте пустым — вернуть официальный курс)', effectiveCb() ? String(effectiveCb()).replace('.', ',') : '');
+$('#cbCard').addEventListener('click', async () => {
+  const v = await askValue('Курс ЦБ вручную, ₽ за 1 USD. Оставьте пустым — вернётся официальный курс.', effectiveCb() ? String(effectiveCb()).replace('.', ',') : '');
   if (v === null) return;
   const n = parseNum(v);
   if (n > 0) {
@@ -425,7 +449,7 @@ for (const body of [$('#costBody'), $('#saleBody')]) {
     if (el.dataset.t === 'bool' || el.dataset.f === 'from') saveField(el);
     if (el.dataset.f === 'period') { saveField(el); rerender(); }
   });
-  body.addEventListener('click', e => {
+  body.addEventListener('click', async e => {
     const p = store.getParams();
     if (e.target.dataset.add) {
       const id = uid();
@@ -437,9 +461,10 @@ for (const body of [$('#costBody'), $('#saleBody')]) {
       const row = e.target.closest('.exp');
       const list = ownerList(p, row.dataset.owner);
       const item = list.find(x => x.id === row.dataset.id);
-      if (!confirm(`Удалить статью «${item.name || 'без названия'}»?`)) return;
-      list.splice(list.indexOf(item), 1);
-      store.setParams(p); rerender();
+      if (!await askYes(`Удалить статью «${item.name || 'без названия'}»?`)) return;
+      const fresh = store.getParams(), freshList = ownerList(fresh, row.dataset.owner);
+      freshList.splice(freshList.findIndex(x => x.id === item.id), 1);
+      store.setParams(fresh); rerender();
     }
   });
 }
