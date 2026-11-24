@@ -1,7 +1,7 @@
-import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel, planForecast } from './calc.js?v=15';
-import { getUsdRate, todayMsk, addDays } from './cbr.js?v=15';
-import { SUPABASE } from './config.js?v=15';
-import * as store from './store.js?v=15';
+import { calcDay, periodReport, dayShareOfMonth, clientQuote, rubForUsdt, daysInMonth, monthlySum, monthsOfYear, activeOoo, channel, planForecast } from './calc.js?v=18';
+import { getUsdRate, todayMsk, addDays } from './cbr.js?v=18';
+import { SUPABASE } from './config.js?v=18';
+import * as store from './store.js?v=18';
 
 const $ = s => document.querySelector(s);
 const nf = d => new Intl.NumberFormat('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -151,7 +151,7 @@ function renderDay() {
   const many = activeOoo(p).length > 1;
   $('#ops').innerHTML = ops.length ? `<div class="card ops"><div class="muted small">Поступления</div>${[...ops].reverse().map(o => `
     <div class="op"><div><b>${rub(o.amount)}</b> <span class="muted small">→ ${usdt(clientQuote(o.amount, cb, p, o.ooo ?? (activeOoo(p)[0]?.id || 1)), 2)}</span>
-      <div class="muted small">${o.at ? new Date(o.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''}${many && o.ooo ? ' · ' + esc(channel(p, o.ooo)?.name || '') : ''}${o.by ? ' · ' + esc(o.by) : ''}</div></div>
+      <div class="muted small">${o.at ? new Date(o.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''}${o.by ? ' · <b>' + esc(o.by) + '</b>' : ''}${many && o.ooo ? ' · ' + esc(channel(p, o.ooo)?.name || '') : ''}</div></div>
       <button type="button" class="x" data-op="${o.id}" aria-label="Удалить">×</button></div>`).join('')}</div>` : '';
   document.querySelectorAll('[data-op]').forEach(b => b.addEventListener('click', () => removeOp(b.dataset.op)));
 }
@@ -160,8 +160,9 @@ function addOp(amount) {
   const cb = effectiveCb();
   if (!cb || !amount) return;
   const saved = store.getDay(st.date);
-  const ops = [...(saved?.ops || []), { id: uid(), amount: Math.round(amount), ooo: st.ooo, at: new Date().toISOString(), by: store.syncCfg().email || '' }];
+  const ops = [...(saved?.ops || []), { id: uid(), amount: Math.round(amount), ooo: st.ooo, at: new Date().toISOString(), by: store.me() }];
   store.saveDay({ date: st.date, ops, flow: ops.reduce((s, o) => s + o.amount, 0), cb, cbDate: st.cbManual != null ? null : st.cbDate, cbManual: st.cbManual != null });
+  store.addLog(`Внёс поступление ${rub(Math.round(amount))} на ${dmy(st.date)}`);
   st.qVal = 0; $('#qIn').value = '';
   renderDay();
 }
@@ -172,6 +173,7 @@ async function removeOp(id) {
   const ops = store.getDay(st.date).ops.filter(o => o.id !== id);
   if (!ops.length) store.deleteDay(st.date);
   else store.saveDay({ ...saved, ops, flow: ops.reduce((s, o) => s + o.amount, 0) });
+  store.addLog(`Удалил поступление ${rub(op.amount)} за ${dmy(st.date)}${op.by && op.by !== store.me() ? ` (вносил ${op.by})` : ''}`);
   renderDay();
 }
 
@@ -193,6 +195,7 @@ $('#cbCard').addEventListener('click', async () => {
     st.cbManual = n;
     const saved = store.getDay(st.date);
     if (saved) store.saveDay({ ...saved, cb: n, cbManual: true, cbDate: null });
+    store.addLog(`Курс ЦБ на ${dmy(st.date)} вручную: ${fmt(n, 4)}`, 'cb' + st.date);
     renderDay();
   } else loadDate(st.date, true);
 });
@@ -306,6 +309,9 @@ function savePlan(patch) {
   const p = store.getParams();
   p.plans = { ...(p.plans || {}), [planMonth]: { ...getPlan(p, planMonth), ...patch } };
   store.setParams(p);
+  const q = p.plans[planMonth];
+  const flowTxt = q.mode === 'month' ? `${rub(q.amount)} за месяц` : `${rub(q.amount)} в день`;
+  store.addLog(`План на ${monthName(planMonth)}: ${flowTxt}, ${q.days} раб. дн.${q.cb ? `, ЦБ ${fmt(q.cb, 4)}` : ''}`, 'plan' + planMonth);
 }
 $('#plPrev').addEventListener('click', () => { planMonth = shiftMonth(planMonth, -1); renderPlan(); });
 $('#plNext').addEventListener('click', () => { planMonth = shiftMonth(planMonth, 1); renderPlan(); });
@@ -327,7 +333,8 @@ function renderPlan() {
     <div class="muted small">Введите любое из двух — второе посчитается само.</div>
     <label class="prm"><span>Рабочих дней в месяце</span><span class="pin"><input id="planDays" inputmode="numeric" value="${pl.days}"><i>дн</i></span></label>
     <label class="prm"><span>Курс ЦБ для прогноза</span><span class="pin"><input id="planCb" inputmode="decimal" value="${cbShown ? fmt(cbShown, 4) : ''}"><i>₽</i></span></label>
-    <div class="muted small">${pl.cb ? 'курс введён вручную' : 'сегодняшний курс ЦБ — можно поменять'}</div>`;
+    <div class="muted small">${pl.cb ? 'курс введён вручную' : 'сегодняшний курс ЦБ — можно поменять'}</div>
+    ${lastChange('План на ' + monthName(planMonth))}`;
   const digits = el => { const d = el.value.replace(/\D/g, ''); el.value = d ? fmt(parseInt(d, 10)) : ''; return d ? parseInt(d, 10) : 0; };
   // обновляем второе поле, не трогая то, в котором сейчас курсор
   const syncOther = () => {
@@ -412,11 +419,23 @@ function itemsHtml(items, cur, owner) {
       ${e.period !== 'month' ? `<label class="efrom muted small">${e.period === 'year' ? 'месяц оплаты' : 'месяц'} <input type="month" value="${e.from || todayMsk().slice(0, 7)}" data-f="from"></label>` : ''}
     </div>`).join('') + `<button type="button" class="addbtn" data-add="${owner}">+ Добавить статью</button>`;
 }
+// «Себес · ООО 1», «Продажа · Гонконг»… — где находится поле, для истории изменений
+function fieldCtx(path, p) {
+  const side = /(^|\.)sale\./.test(path) || path.startsWith('sale.') ? 'Продажа' : 'Себес';
+  const m = path.match(/^ooo\.(\d)\./);
+  if (m) return `${side} · ${p.ooo[+m[1]].name}`;
+  if (path.startsWith('nr.')) return `${side} · ${p.nr.name}`;
+  if (path === 'sale.extraRub') return 'Продажа · Наценка';
+  return `${side} · Гонконг`;
+}
+const ownerCtx = (p, owner) => owner === 'dubai' ? 'Себес · Дубай' : owner === 'saleDubai' ? 'Продажа · Дубай' : `Себес · ${p.ooo.find(o => 'ooo' + o.id === owner).name}`;
+const fmtVal = (v, type) => type === 'bool' ? (v ? 'да' : 'нет') : type === 'rub' ? `${fmt(v, 2).replace(/,?0+$/, '')} ₽` : `${fmt(v * 100, 3).replace(/,?0+$/, '')}%`;
+
 function fieldHtml(path, label, type, p) {
   const v = getPath(p, path);
-  if (type === 'bool') return `<label class="toggle">${label}<input type="checkbox" data-p="${path}" data-t="bool" ${v ? 'checked' : ''}></label>`;
+  if (type === 'bool') return `<label class="toggle">${label}<input type="checkbox" data-p="${path}" data-t="bool" data-log="${esc(fieldCtx(path, p) + ' · ' + label)}" ${v ? 'checked' : ''}></label>`;
   const shown = fmt(type === 'rub' ? v : v * 100, 3).replace(/,?0+$/, '');
-  return `<label class="prm"><span>${label}</span><span class="pin"><input data-p="${path}" data-t="${type}" inputmode="decimal" value="${shown}"><i>${type === 'rub' ? '₽' : '%'}</i></span></label>`;
+  return `<label class="prm"><span>${label}</span><span class="pin"><input data-p="${path}" data-t="${type}" data-log="${esc(fieldCtx(path, p) + ' · ' + label)}" inputmode="decimal" value="${shown}"><i>${type === 'rub' ? '₽' : '%'}</i></span></label>`;
 }
 const ownerList = (p, owner) => owner === 'dubai' ? p.dubai : owner === 'saleDubai' ? p.sale.dubai : p.ooo.find(o => 'ooo' + o.id === owner).expenses;
 const total = items => `${fmt(monthlySum(items))}`;
@@ -427,7 +446,7 @@ const oooHead = o => `<div class="ohead">
 
 function renderCost() {
   const p = store.getParams(), act = activeOoo(p);
-  $('#costBody').innerHTML = `
+  $('#costBody').innerHTML = `${lastChange('Себес')}
     <div class="card">
       <div class="ghead"><h3>🇷🇺 ООО</h3><span class="muted small">в расчётах: <b>${act.length} из 4</b></span></div>
       ${p.ooo.map((o, i) => `<div class="ooo ${o.active ? '' : 'off'}">
@@ -462,7 +481,7 @@ function renderCost() {
 
 function renderSale() {
   const p = store.getParams(), act = activeOoo(p);
-  $('#saleBody').innerHTML = `
+  $('#saleBody').innerHTML = `${lastChange('Продажа')}
     <div class="card">
       <div class="ghead"><h3>🇷🇺 ООО</h3><span class="muted small">в расчётах: <b>${act.length} из 4</b></span></div>
       ${p.ooo.map((o, i) => `<div class="ooo ${o.active ? '' : 'off'}">
@@ -510,18 +529,36 @@ function updatePreviews() {
   $('#salePreviewNote').textContent = `ЦБ ${fmt(todayCb, 4)}${who}${others(saleR)} · без постоянных расходов Дубая`;
 }
 
+// исходное значение поля — до начала правки, чтобы в истории было «было → стало»
+const logStart = new Map();
 function saveField(el) {
   const p = store.getParams();
   if (el.dataset.p) {
-    const t = el.dataset.t;
-    setPath(p, el.dataset.p, t === 'bool' ? el.checked : t === 'rub' ? parseNum(el.value) : parseNum(el.value) / 100);
+    const t = el.dataset.t, key = el.dataset.p;
+    const before = getPath(p, key);
+    const after = t === 'bool' ? el.checked : t === 'rub' ? parseNum(el.value) : parseNum(el.value) / 100;
+    setPath(p, key, after);
+    if (!logStart.has(key)) logStart.set(key, before);
+    if (Math.abs((+logStart.get(key) || 0) - (+after || 0)) < 1e-12 && typeof after !== 'boolean') store.dropLog(key);
+    else store.addLog(`${el.dataset.log}: ${fmtVal(logStart.get(key), t)} → ${fmtVal(after, t)}`, key);
   } else if (el.dataset.oname) {
-    channel(p, el.dataset.oname).name = el.value.trim() || (+el.dataset.oname === 4 ? 'Нерезидентский счёт (Дубай)' : `ООО ${el.dataset.oname}`);
+    const ch = channel(p, el.dataset.oname), key = 'name' + el.dataset.oname;
+    if (!logStart.has(key)) logStart.set(key, ch.name);
+    ch.name = el.value.trim() || (+el.dataset.oname === 4 ? 'Нерезидентский счёт (Дубай)' : `ООО ${el.dataset.oname}`);
+    store.addLog(`Переименовал «${logStart.get(key)}» → «${ch.name}»`, key);
   } else {
     const row = el.closest('.exp'); if (!row) return;
     const item = ownerList(p, row.dataset.owner).find(x => x.id === row.dataset.id);
-    const f = el.dataset.f;
+    const f = el.dataset.f, key = row.dataset.id + f, cur = row.dataset.owner === 'ooo1' || row.dataset.owner.startsWith('ooo') ? '₽' : 'USD';
+    if (!logStart.has(key)) logStart.set(key, item[f]);
     item[f] = f === 'amount' ? parseNum(el.value) : el.value;
+    const name = item.name || 'без названия';
+    const txt = f === 'amount' ? `статья «${name}»: ${fmt(+logStart.get(key) || 0)} → ${fmt(item.amount)} ${cur}`
+      : f === 'name' ? `статья «${logStart.get(key) || 'без названия'}» → «${name}»`
+      : f === 'period' ? `статья «${name}»: ${PERIODS[logStart.get(key)] || ''} → ${PERIODS[item.period]}`
+      : `статья «${name}»: месяц ${item.from}`;
+    if (String(logStart.get(key) ?? '') === String(item[f] ?? '') || (f === 'amount' && (+logStart.get(key) || 0) === item.amount)) store.dropLog(key);
+    else store.addLog(`${ownerCtx(p, row.dataset.owner)} · ${txt}`, key);
     if (f === 'period' && item.period !== 'month' && !item.from) item.from = todayMsk().slice(0, 7);
     const tot = document.querySelector(`[data-total="${row.dataset.owner}"]`);
     if (tot) tot.textContent = total(ownerList(p, row.dataset.owner));
@@ -532,6 +569,7 @@ function saveField(el) {
 
 for (const body of [$('#costBody'), $('#saleBody')]) {
   const rerender = () => (body.id === 'costBody' ? renderCost() : renderSale());
+  body.addEventListener('focusout', () => logStart.clear());
   body.addEventListener('input', e => {
     const el = e.target;
     if (el.dataset.f === 'amount') { const d = el.value.replace(/\D/g, ''); el.value = d ? fmt(parseInt(d, 10)) : ''; }
@@ -540,7 +578,9 @@ for (const body of [$('#costBody'), $('#saleBody')]) {
   body.addEventListener('change', e => {
     const el = e.target;
     if (el.dataset.oon) {
-      const p = store.getParams(); channel(p, el.dataset.oon).active = el.checked; store.setParams(p); rerender(); return;
+      const p = store.getParams(), ch = channel(p, el.dataset.oon); ch.active = el.checked; store.setParams(p);
+      store.addLog(`${ch.name}: ${el.checked ? 'включено в расчёты' : 'выключено из расчётов'}`);
+      rerender(); return;
     }
     if (el.dataset.t === 'bool' || el.dataset.f === 'from') saveField(el);
     if (el.dataset.f === 'period') { saveField(el); rerender(); }
@@ -550,7 +590,7 @@ for (const body of [$('#costBody'), $('#saleBody')]) {
     if (e.target.dataset.add) {
       const id = uid();
       ownerList(p, e.target.dataset.add).push({ id, name: '', amount: 0, period: 'month' });
-      store.setParams(p); rerender();
+      store.setParams(p); store.addLog(`${ownerCtx(p, e.target.dataset.add)} · добавил статью`); rerender();
       document.querySelector(`.exp[data-id="${id}"] .ename`)?.focus();
     }
     if (e.target.hasAttribute('data-del')) {
@@ -560,45 +600,69 @@ for (const body of [$('#costBody'), $('#saleBody')]) {
       if (!await askYes(`Удалить статью «${item.name || 'без названия'}»?`)) return;
       const fresh = store.getParams(), freshList = ownerList(fresh, row.dataset.owner);
       freshList.splice(freshList.findIndex(x => x.id === item.id), 1);
-      store.setParams(fresh); rerender();
+      store.setParams(fresh); store.addLog(`${ownerCtx(fresh, row.dataset.owner)} · удалил статью «${item.name || 'без названия'}» (${fmt(+item.amount || 0)})`); rerender();
     }
   });
 }
 
-// ---------------- общий журнал (вход) ----------------
+// ---------------- вход, имя, история изменений ----------------
 const dlg = $('#syncDlg');
+const when = iso => {
+  const d = new Date(iso), today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+};
+function historyHtml(filter, limit = 100) {
+  const items = store.getLog().filter(e => !filter || filter(e)).slice(0, limit);
+  return items.length ? items.map(e => `<div class="hist"><div class="hmeta"><b>${esc(e.by || '—')}</b> · ${when(e.at)}</div><div>${esc(e.text)}</div></div>`).join('')
+    : '<p class="muted small">Изменений пока нет</p>';
+}
+/** «Последнее изменение: Макс · 14:32» для вкладки */
+function lastChange(prefix) {
+  const e = store.getLog().find(x => x.text.startsWith(prefix));
+  return e ? `<div class="lastch">Последнее изменение: <b>${esc(e.by || '—')}</b> · ${when(e.at)} — ${esc(e.text.slice(prefix.length).replace(/^ · /, ''))}</div>` : '';
+}
 function renderSyncBox() {
-  const c = store.syncCfg();
-  $('#syncLogged').classList.toggle('hidden', !c.refresh);
-  $('#loginForm').classList.toggle('hidden', !!c.refresh);
+  const c = store.syncCfg(), logged = store.loggedIn();
+  $('#syncLogged').classList.toggle('hidden', !logged);
+  $('#loginForm').classList.toggle('hidden', logged);
   $('#syncEmail').textContent = c.email || '';
-  $('#cfgFields').classList.toggle('hidden', !!(SUPABASE.url && SUPABASE.anonKey));
-  if (!c.refresh) { $('#loginForm').url.value = c.url || ''; $('#loginForm').key.value = c.anonKey || ''; }
+  $('#meName').value = store.me();
+  $('#cfgFields').classList.toggle('hidden', store.baseConfigured());
+  $('#loginNote').textContent = store.baseConfigured() ? '' : 'Общая база ещё не подключена — пока всё хранится только в этом телефоне.';
+  $('#history').innerHTML = historyHtml();
+}
+function renderSyncPill(state) {
+  const b = $('#sync');
+  b.className = 'sync' + ({ ok: ' ok', error: ' err', syncing: ' busy' }[state] || '');
+  const status = { off: store.baseConfigured() ? 'войти' : 'локально', offline: 'офлайн', syncing: 'синхр…', ok: '✓', error: 'ошибка' }[state] || '';
+  $('#syncText').textContent = `${store.me() || 'кто вы?'} · ${status}`;
 }
 $('#sync').addEventListener('click', () => { renderSyncBox(); dlg.showModal(); });
 $('#syncClose').addEventListener('click', () => dlg.close());
+$('#meName').addEventListener('change', e => { if (e.target.value.trim()) { store.setMe(e.target.value); renderSyncPill(); } });
 $('#loginForm').addEventListener('submit', async e => {
   e.preventDefault();
   const f = e.target; $('#loginErr').textContent = '';
-  const url = SUPABASE.url || f.url.value.trim(), key = SUPABASE.anonKey || f.key.value.trim();
-  if (!url || !key) { $('#loginErr').textContent = 'Общая база ещё не подключена'; return; }
-  try { await store.login(url, key, f.email.value.trim(), f.password.value); f.password.value = ''; renderSyncBox(); }
-  catch (err) { $('#loginErr').textContent = err.message; }
+  try {
+    await store.login(f.email.value.trim(), f.password.value, f.url.value.trim(), f.key.value.trim());
+    f.password.value = ''; renderSyncBox(); renderSyncPill('ok'); RENDER[currentTab]();
+  } catch (err) { $('#loginErr').textContent = err.message; }
 });
-$('#logoutBtn').addEventListener('click', () => { store.logout(); renderSyncBox(); });
+$('#logoutBtn').addEventListener('click', () => { store.logout(); renderSyncBox(); renderSyncPill('off'); });
 $('#syncNowBtn').addEventListener('click', () => store.syncNow());
 
 store.onChange(s => {
-  const b = $('#sync');
-  b.className = 'sync' + ({ ok: ' ok', error: ' err', syncing: ' busy' }[s.state] || '');
-  $('#syncText').textContent = { off: 'не подключено', offline: 'офлайн', syncing: 'синхр…', ok: 'общий журнал', error: 'ошибка синхр.' }[s.state];
-  b.title = s.message || '';
+  renderSyncPill(s.state);
+  $('#sync').title = s.message || '';
+  if (dlg.open) $('#history').innerHTML = historyHtml();
   if (s.state === 'ok' && !document.activeElement?.matches('input, select')) RENDER[currentTab]();
 });
 
 // ---------------- старт ----------------
-// общая база не подключена — кнопка синхронизации не нужна, всё хранится в телефоне
-if (!(SUPABASE.url && SUPABASE.anonKey) && !store.syncCfg().refresh) $('#sync').classList.add('hidden');
+renderSyncPill('off');
 loadDate(st.date);
+// имя нужно, чтобы подписывать изменения
+if (!store.me()) askValue('Как вас зовут? Имя будет видно у всех ваших изменений.', '').then(v => { if (v && v.trim()) { store.setMe(v); renderSyncPill('off'); } });
 store.syncNow();
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js');

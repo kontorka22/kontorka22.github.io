@@ -194,3 +194,12 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 .pair label { display: flex; flex-direction: column; gap: 6px; }
 .pair .qinput { margin: 0; } .pair .qinput input { font-size: 20px; padding: 11px 10px; } .pair .qinput span { font-size: 18px; width: auto; }
 #planIn > .muted { margin-top: 6px; }
+
+.histhead { margin: 18px 0 6px; font-size: 16px; }
+#history { max-height: 45vh; overflow: auto; }
+.hist { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.hmeta { font-size: 12px; color: var(--muted); margin-bottom: 2px; } .hmeta b { color: var(--acc); }
+.lastch { font-size: 12px; color: var(--muted); margin: 0 4px 10px; } .lastch b { color: var(--acc); }
+#planIn .lastch { margin: 10px 0 0; }
+.op b + .muted, .op .muted b { color: var(--acc); }
+dialog { max-height: 88vh; overflow: auto; }

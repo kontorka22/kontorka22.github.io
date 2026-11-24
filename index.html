@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 <header class="top">
@@ -102,22 +102,28 @@
 
 <!-- вход в общий журнал -->
 <dialog id="syncDlg">
-  <div class="dlghead"><h3>Общий журнал на двоих</h3><button type="button" class="x" id="syncClose">×</button></div>
+  <div class="dlghead"><h3>Общий журнал</h3><button type="button" class="x" id="syncClose">×</button></div>
+  <label class="lbl">Ваше имя — им подписываются изменения<input id="meName" autocomplete="off"></label>
   <div id="syncLogged" class="hidden">
-    <p class="muted small">Вы вошли как <b id="syncEmail"></b></p>
-    <button type="button" id="syncNowBtn" class="btn sec">Синхронизировать сейчас</button>
-    <button type="button" id="logoutBtn" class="link">выйти</button>
+    <p class="muted small">Вход: <b id="syncEmail"></b></p>
+    <div class="askbtns">
+      <button type="button" id="syncNowBtn" class="btn sec">Синхронизировать</button>
+      <button type="button" id="logoutBtn" class="btn sec">Выйти</button>
+    </div>
   </div>
   <form id="loginForm">
+    <p class="muted small" id="loginNote"></p>
     <div id="cfgFields">
       <label class="lbl">Адрес базы (Supabase URL)<input name="url" placeholder="https://xxxx.supabase.co" autocomplete="off"></label>
       <label class="lbl">Ключ (anon key)<input name="key" autocomplete="off"></label>
     </div>
-    <label class="lbl">Email<input name="email" type="email" autocomplete="username"></label>
+    <label class="lbl">Почта<input name="email" type="email" autocomplete="username"></label>
     <label class="lbl">Пароль<input name="password" type="password" autocomplete="current-password"></label>
     <button class="btn sec">Войти</button>
     <div id="loginErr" class="err small"></div>
   </form>
+  <h3 class="histhead">История изменений</h3>
+  <div id="history"></div>
 </dialog>
 
 <!-- подтверждение / ввод значения -->
@@ -138,6 +144,6 @@
   <button type="button" data-tab="sale"><i>↑</i>Продажа</button>
 </nav>
 
-<script type="module" src="app.js?v=17"></script>
+<script type="module" src="app.js?v=18"></script>
 </body>
 </html>
